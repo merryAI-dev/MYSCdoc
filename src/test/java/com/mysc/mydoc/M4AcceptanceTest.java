@@ -120,7 +120,9 @@ class M4AcceptanceTest {
                 )
         ));
         summaryClient.responses.add("""
+                요약 결과입니다.
                 {"title":"결정 문서","sections":[{"heading":"결정 사항","paragraphs":["A로 결정했어요."]},{"heading":"근거","paragraphs":["B를 근거로 삼았어요."]}]}
+                확인해 주세요.
                 """);
 
         ingest.onReactionAdded("C1", "111.1", "U1");
