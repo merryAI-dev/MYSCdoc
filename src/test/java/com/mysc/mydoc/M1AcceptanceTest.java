@@ -232,6 +232,15 @@ class M1AcceptanceTest {
                 adminId
         );
         UUID otherMemberId = id(otherMember);
+
+        ResponseEntity<Map> forbiddenOwnerChange = exchange(
+                "/api/documents/" + documentId + "/owner",
+                HttpMethod.PUT,
+                Map.of("ownerId", otherMemberId.toString()),
+                otherMemberId
+        );
+        assertThat(forbiddenOwnerChange.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
         ResponseEntity<Map> forbiddenVerify = exchange(
                 "/api/documents/" + documentId + "/verify",
                 HttpMethod.POST,
