@@ -52,4 +52,6 @@ public final class ApiDtos {
 
     public record RevisionSummary(UUID id, UUID editorId, String editorName, ChangeCause cause, Instant createdAt) {}
     public record RevisionDetail(UUID id, UUID documentId, JsonNode snapshot, UUID editorId, ChangeCause cause, Instant createdAt) {}
+    public record SearchResponse(List<SearchHitResponse> hits) {}
+    public record SearchHitResponse(UUID documentId, String title, String headingPath, String snippet, double score) {}
 }

@@ -11,6 +11,20 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+  ai:
+    model:
+      audio:
+        speech: none
+        transcription: none
+      chat: none
+      embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
+      image: none
+      moderation: none
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      embedding:
+        options:
+          model: text-embedding-3-small
 
 mydoc:
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:}
