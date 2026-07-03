@@ -59,7 +59,7 @@ public class StalenessJob {
                 📄 문서가 오래됐어요: %s
                 마지막 검증: %s (TTL %d일)
                 내용이 아직 유효하면 [검증하기]를, 아니면 문서를 수정해 주세요.
-                %s/api/documents/%s
+                %s/d/%s
                 """.formatted(document.getTitle(), verifiedAt, document.getTtlDays(), documentBaseUrl, document.getId());
     }
 }

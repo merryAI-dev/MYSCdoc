@@ -142,7 +142,7 @@ public class SlackIngestService {
     }
 
     private String documentUrl(UUID documentId) {
-        return documentBaseUrl + "/api/documents/" + documentId;
+        return documentBaseUrl + "/d/" + documentId;
     }
 
     private SlackGateway slack() {

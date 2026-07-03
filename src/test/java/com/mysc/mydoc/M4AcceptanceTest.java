@@ -136,7 +136,7 @@ class M4AcceptanceTest {
                 .contains("출처: https://slack.test/archives/C1/p1111");
         assertThat(jdbcTemplate.queryForList("SELECT DISTINCT source_type FROM block WHERE document_id = ?", String.class, documentId))
                 .containsExactly("SLACK_INGEST");
-        assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("http://mydoc.test/api/documents/" + documentId));
+        assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("http://mydoc.test/d/" + documentId));
 
         ingest.onReactionAdded("C1", "111.1", "U1");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document WHERE title = '결정 문서'", Integer.class)).isEqualTo(1);

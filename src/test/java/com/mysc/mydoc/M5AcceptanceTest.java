@@ -111,6 +111,7 @@ class M5AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, verifiedOldDoc)).isEqualTo("STALE");
         assertThat(slackDm.messages).hasSize(1);
         assertThat(slackDm.messages.get(0)).contains("검증 오래된 문서");
+        assertThat(slackDm.messages.get(0)).contains("http://mydoc.test/d/" + verifiedOldDoc);
 
         stalenessJob.run();
         assertThat(slackDm.messages).hasSize(1);
