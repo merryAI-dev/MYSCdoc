@@ -177,6 +177,11 @@ class M6AcceptanceTest {
         String verifyText = toolText(mcp("tools/call", Map.of("name", "verify_document", "arguments", Map.of("documentId", documentId.toString())), otherId));
         assertThat(verifyText).isEqualTo("owner만 검증할 수 있어요");
 
+        String ownerVerifyText = toolText(mcp("tools/call", Map.of("name", "verify_document", "arguments", Map.of("documentId", documentId.toString())), ownerId));
+        assertThat(ownerVerifyText).isEqualTo("검증했어요: http://mydoc.test/d/" + documentId);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, documentId)).isEqualTo("ACTIVE");
+        assertThat(jdbcTemplate.queryForObject("SELECT verified_at IS NOT NULL FROM document WHERE id = ?", Boolean.class, documentId)).isTrue();
+
         UUID missing = UUID.randomUUID();
         String missingText = toolText(mcp("tools/call", Map.of("name", "get_document", "arguments", Map.of("documentId", missing.toString())), ownerId));
         assertThat(missingText).contains("문서를 찾을 수 없어요");
