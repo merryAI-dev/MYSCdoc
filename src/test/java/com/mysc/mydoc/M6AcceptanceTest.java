@@ -132,6 +132,12 @@ class M6AcceptanceTest {
         List<Map<String, Object>> toolList = (List<Map<String, Object>>) ((Map<String, Object>) tools.get("result")).get("tools");
         assertThat(toolList).extracting(tool -> tool.get("name"))
                 .containsExactly("search_documents", "get_document", "create_draft", "verify_document");
+        Map<String, Object> searchToolSchema = inputSchema(toolList, "search_documents");
+        assertThat(searchToolSchema).containsEntry("required", List.of("query"));
+        Map<String, Object> searchProperties = (Map<String, Object>) searchToolSchema.get("properties");
+        assertThat((Map<String, Object>) searchProperties.get("limit"))
+                .containsEntry("default", 5)
+                .containsEntry("maximum", 20);
 
         String searchText = toolText(mcp("tools/call", Map.of(
                 "name", "search_documents",
@@ -263,6 +269,14 @@ class M6AcceptanceTest {
         Map<String, Object> result = (Map<String, Object>) response.get("result");
         List<Map<String, Object>> content = (List<Map<String, Object>>) result.get("content");
         return (String) content.get(0).get("text");
+    }
+
+    private Map<String, Object> inputSchema(List<Map<String, Object>> tools, String name) {
+        return (Map<String, Object>) tools.stream()
+                .filter(tool -> name.equals(tool.get("name")))
+                .findFirst()
+                .orElseThrow()
+                .get("inputSchema");
     }
 
     private ResponseEntity<Map> api(String path, HttpMethod method, Object body, UUID memberId) {
