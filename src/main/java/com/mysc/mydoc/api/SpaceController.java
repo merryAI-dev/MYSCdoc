@@ -3,6 +3,7 @@ package com.mysc.mydoc.api;
 import static com.mysc.mydoc.api.dto.ApiDtos.SpaceRequest;
 import static com.mysc.mydoc.api.dto.ApiDtos.SpaceResponse;
 
+import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.config.HeaderAuthFilter;
 import com.mysc.mydoc.domain.Space;
 import com.mysc.mydoc.service.SpaceService;
@@ -31,6 +32,9 @@ public class SpaceController {
             @RequestBody SpaceRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        if (request == null) {
+            throw new ValidationException("space request is required");
+        }
         Space space = spaces.create(request.slug(), request.name(), memberId);
         return ResponseEntity.created(URI.create("/api/spaces/" + space.getId())).body(toResponse(space));
     }

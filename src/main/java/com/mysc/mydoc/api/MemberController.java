@@ -3,6 +3,7 @@ package com.mysc.mydoc.api;
 import static com.mysc.mydoc.api.dto.ApiDtos.MemberRequest;
 import static com.mysc.mydoc.api.dto.ApiDtos.MemberResponse;
 
+import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.config.HeaderAuthFilter;
 import com.mysc.mydoc.domain.Member;
 import com.mysc.mydoc.service.MemberService;
@@ -30,6 +31,9 @@ public class MemberController {
             @RequestBody MemberRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        if (request == null) {
+            throw new ValidationException("member request is required");
+        }
         Member member = members.create(request.email(), request.displayName(), request.role(), memberId);
         return ResponseEntity.created(URI.create("/api/members/" + member.getId())).body(toResponse(member));
     }

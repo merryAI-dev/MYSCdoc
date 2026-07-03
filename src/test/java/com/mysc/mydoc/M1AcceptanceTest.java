@@ -74,6 +74,15 @@ class M1AcceptanceTest {
         assertThat(space.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         UUID spaceId = id(space);
 
+        ResponseEntity<Map> duplicateSpace = exchange(
+                "/api/spaces",
+                HttpMethod.POST,
+                Map.of("slug", "axr-team", "name", "AXR팀 중복"),
+                adminId
+        );
+        assertThat(duplicateSpace.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(duplicateSpace.getBody()).containsEntry("status", 400);
+
         ResponseEntity<Map> member = exchange(
                 "/api/members",
                 HttpMethod.POST,
