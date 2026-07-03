@@ -132,6 +132,15 @@ class M1AcceptanceTest {
         assertThat(nullBlocks.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(nullBlocks.getBody()).containsEntry("status", 400);
 
+        ResponseEntity<Map> invalidBlockType = exchange(
+                "/api/documents/" + documentId + "/blocks",
+                HttpMethod.PUT,
+                Map.of("blocks", List.of(block("UNKNOWN", Map.of("type", "paragraph")))),
+                memberId
+        );
+        assertThat(invalidBlockType.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(invalidBlockType.getBody()).containsEntry("status", 400);
+
         ResponseEntity<Map> otherMember = exchange(
                 "/api/members",
                 HttpMethod.POST,
