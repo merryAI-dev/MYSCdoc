@@ -120,6 +120,15 @@ class M3AcceptanceTest {
         assertThat(payload).containsEntry("doc", documentId.toString());
         assertThat(payload).containsEntry("perm", "write");
 
+        ResponseEntity<Map> missingDocumentIdToken = exchange(
+                "/api/internal/collab-tokens",
+                HttpMethod.POST,
+                Map.of(),
+                memberEntity(Map.of(), memberId)
+        );
+        assertThat(missingDocumentIdToken.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missingDocumentIdToken.getBody()).containsEntry("status", 400);
+
         ResponseEntity<Map> forgedAuth = restTemplate.exchange(
                 "/api/internal/collab-tokens",
                 HttpMethod.GET,

@@ -33,6 +33,9 @@ public class CollabTokenService {
     }
 
     public String issue(UUID documentId, UUID memberId) {
+        if (documentId == null) {
+            throw new ValidationException("documentId is required");
+        }
         if (!StringUtils.hasText(jwtSecret)) {
             throw new ValidationException("collab jwt secret is not configured");
         }
