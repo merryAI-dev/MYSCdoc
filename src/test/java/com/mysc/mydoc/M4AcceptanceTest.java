@@ -209,6 +209,19 @@ class M4AcceptanceTest {
                 """, UUID.class);
         String fallbackEmail = jdbcTemplate.queryForObject("SELECT email FROM member WHERE id = ?", String.class, fallbackOwner);
         assertThat(fallbackEmail).isEqualTo("bot@mydoc.internal");
+
+        slack.failUserEmail = true;
+        slack.threads.put("C1:666.1", new SlackThread("666.1", "https://slack.test/archives/C1/p6666", List.of(new SlackMessage("U1", "보람", "user lookup failure", "666.1"))));
+        summaryClient.responses.add("""
+                {"title":"user lookup failure 문서","sections":[{"heading":"결정 사항","paragraphs":["시스템 멤버 fallback이에요."]}]}
+                """);
+        ingest.onReactionAdded("C1", "666.1", "U1");
+        UUID lookupFailureOwner = jdbcTemplate.queryForObject("""
+                SELECT owner_id FROM document WHERE title = 'user lookup failure 문서'
+                """, UUID.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT email FROM member WHERE id = ?", String.class, lookupFailureOwner))
+                .isEqualTo("bot@mydoc.internal");
+        slack.failUserEmail = false;
     }
 
     private HttpEntity<Object> entity(Object body, UUID memberId) {
@@ -224,6 +237,7 @@ class M4AcceptanceTest {
         final Map<String, String> userEmails = new ConcurrentHashMap<>();
         final List<Reply> replies = new ArrayList<>();
         boolean failReplies;
+        boolean failUserEmail;
 
         @Override
         public SlackThread thread(String channelId, String messageTs) {
@@ -232,6 +246,9 @@ class M4AcceptanceTest {
 
         @Override
         public Optional<String> userEmail(String slackUserId) {
+            if (failUserEmail) {
+                throw new IllegalStateException("user lookup failed");
+            }
             return Optional.ofNullable(userEmails.get(slackUserId));
         }
 
@@ -248,6 +265,7 @@ class M4AcceptanceTest {
             userEmails.clear();
             replies.clear();
             failReplies = false;
+            failUserEmail = false;
         }
     }
 

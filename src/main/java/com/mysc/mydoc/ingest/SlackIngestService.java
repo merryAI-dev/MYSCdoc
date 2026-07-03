@@ -102,9 +102,13 @@ public class SlackIngestService {
 
     private Member owner(String reactorUserId) {
         if (StringUtils.hasText(reactorUserId)) {
-            var member = slack().userEmail(reactorUserId).flatMap(members::findByEmail);
-            if (member.isPresent()) {
-                return member.get();
+            try {
+                var member = slack().userEmail(reactorUserId).flatMap(members::findByEmail);
+                if (member.isPresent()) {
+                    return member.get();
+                }
+            } catch (RuntimeException exception) {
+                log.warn("Slack user lookup failed", exception);
             }
         }
         return members.findByEmail(SystemMemberInitializer.SYSTEM_MEMBER_EMAIL)
