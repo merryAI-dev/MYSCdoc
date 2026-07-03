@@ -21,6 +21,9 @@ public class SnapshotCommitService {
     }
 
     public void commit(UUID documentId, UUID editorId, List<BlockRequest> blocks) {
+        if (documentId == null) {
+            throw new ValidationException("documentId is required");
+        }
         if (blocks == null) {
             throw new ValidationException("blocks are required");
         }

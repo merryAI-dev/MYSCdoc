@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mysc.mydoc.common.ForbiddenException;
 import com.mysc.mydoc.common.NotFoundException;
+import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.config.HeaderAuthFilter;
 import com.mysc.mydoc.domain.Block;
 import com.mysc.mydoc.domain.BlockType;
@@ -24,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class McpToolService {
@@ -141,11 +143,11 @@ public class McpToolService {
     }
 
     private UUID documentId(Map<String, Object> arguments) {
-        return UUID.fromString((String) arguments.get("documentId"));
+        return UUID.fromString(requiredNonBlankString(arguments, "documentId"));
     }
 
     private String searchDocuments(Map<String, Object> arguments) {
-        String query = (String) arguments.get("query");
+        String query = requiredNonBlankString(arguments, "query");
         int limit = Math.min(((Number) arguments.getOrDefault("limit", DEFAULT_SEARCH_LIMIT)).intValue(), MAX_SEARCH_LIMIT);
         UUID spaceId = null;
         if (arguments.get("spaceSlug") instanceof String slug && !slug.isBlank()) {
@@ -192,10 +194,12 @@ public class McpToolService {
     }
 
     private String createDraft(Map<String, Object> arguments, UUID memberId) {
-        String slug = (String) arguments.get("spaceSlug");
+        String slug = requiredNonBlankString(arguments, "spaceSlug");
+        String title = requiredNonBlankString(arguments, "title");
+        String markdown = requiredString(arguments, "markdown");
         var space = spaces.findBySlug(slug).orElseThrow(() -> new NotFoundException("space not found: " + slug));
-        Document document = documents.create(space.getId(), (String) arguments.get("title"), memberId);
-        List<BlockPayload> payloads = markdownToBlocks((String) arguments.get("markdown"));
+        Document document = documents.create(space.getId(), title, memberId);
+        List<BlockPayload> payloads = markdownToBlocks(markdown);
         documents.replaceBlocks(document.getId(), payloads, memberId, ChangeCause.AI_SUGGESTION);
         return "초안이 생성됐어요: " + baseUrl + "/d/" + document.getId();
     }
@@ -267,6 +271,22 @@ public class McpToolService {
             }
         }
         return payloads;
+    }
+
+    private String requiredString(Map<String, Object> arguments, String name) {
+        Object value = arguments.get(name);
+        if (value instanceof String text) {
+            return text;
+        }
+        throw new ValidationException(name + " is required");
+    }
+
+    private String requiredNonBlankString(Map<String, Object> arguments, String name) {
+        String value = requiredString(arguments, name);
+        if (StringUtils.hasText(value)) {
+            return value;
+        }
+        throw new ValidationException(name + " is required");
     }
 
     private BlockPayload payload(BlockType type, JsonNode content) {

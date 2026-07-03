@@ -13,6 +13,7 @@ import static com.mysc.mydoc.api.dto.ApiDtos.RevisionSummary;
 import static com.mysc.mydoc.api.dto.ApiDtos.TitleRequest;
 
 import com.mysc.mydoc.common.NotFoundException;
+import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.config.HeaderAuthFilter;
 import com.mysc.mydoc.domain.Block;
 import com.mysc.mydoc.domain.ChangeCause;
@@ -103,6 +104,9 @@ public class DocumentController {
             @RequestBody BlocksRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        if (request == null || request.blocks() == null) {
+            throw new ValidationException("blocks are required");
+        }
         List<BlockPayload> payloads = request.blocks().stream()
                 .map(block -> new BlockPayload(block.type(), block.content(), block.sourceType(), block.sourceUrl(), block.sourceRef()))
                 .toList();

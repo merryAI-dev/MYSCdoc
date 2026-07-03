@@ -156,6 +156,12 @@ class M6AcceptanceTest {
         assertThat(jdbcTemplate.queryForList("SELECT type FROM block WHERE document_id = ? ORDER BY position", String.class, draftId))
                 .containsExactly("HEADING1", "PARAGRAPH", "BULLET_LIST", "ORDERED_LIST", "CODE", "TABLE");
 
+        String invalidDraftText = toolText(mcp("tools/call", Map.of(
+                "name", "create_draft",
+                "arguments", Map.of("spaceSlug", "m6-space", "title", "인자 누락")
+        ), ownerId));
+        assertThat(invalidDraftText).contains("markdown");
+
         String verifyText = toolText(mcp("tools/call", Map.of("name", "verify_document", "arguments", Map.of("documentId", documentId.toString())), otherId));
         assertThat(verifyText).isEqualTo("owner만 검증할 수 있어요");
 

@@ -5,6 +5,7 @@ import static com.mysc.mydoc.api.dto.ApiDtos.CollabTokenRequest;
 import static com.mysc.mydoc.api.dto.ApiDtos.CollabTokenResponse;
 import static com.mysc.mydoc.api.dto.ApiDtos.SnapshotRequest;
 
+import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.config.HeaderAuthFilter;
 import com.mysc.mydoc.domain.Block;
 import com.mysc.mydoc.repository.BlockRepository;
@@ -53,6 +54,9 @@ public class InternalController {
 
     @PostMapping("/api/internal/snapshots")
     ResponseEntity<Void> snapshot(@RequestBody SnapshotRequest request) {
+        if (request == null) {
+            throw new ValidationException("snapshot request is required");
+        }
         snapshots.commit(request.documentId(), request.editorId(), request.blocks());
         return ResponseEntity.noContent().build();
     }

@@ -121,6 +121,17 @@ class M1AcceptanceTest {
         assertThat(revisions.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(revisions.getBody()).containsEntry("totalElements", 2);
 
+        Map<String, Object> nullBlocksBody = new LinkedHashMap<>();
+        nullBlocksBody.put("blocks", null);
+        ResponseEntity<Map> nullBlocks = exchange(
+                "/api/documents/" + documentId + "/blocks",
+                HttpMethod.PUT,
+                nullBlocksBody,
+                memberId
+        );
+        assertThat(nullBlocks.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(nullBlocks.getBody()).containsEntry("status", 400);
+
         ResponseEntity<Map> otherMember = exchange(
                 "/api/members",
                 HttpMethod.POST,
