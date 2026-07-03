@@ -1,6 +1,7 @@
 package com.mysc.mydoc.api;
 
 import static com.mysc.mydoc.api.dto.ApiDtos.BlockResponse;
+import static com.mysc.mydoc.api.dto.ApiDtos.BlockRequest;
 import static com.mysc.mydoc.api.dto.ApiDtos.BlocksRequest;
 import static com.mysc.mydoc.api.dto.ApiDtos.CorrectionFindingResponse;
 import static com.mysc.mydoc.api.dto.ApiDtos.CorrectionResponse;
@@ -114,7 +115,7 @@ public class DocumentController {
             throw new ValidationException("blocks are required");
         }
         List<BlockPayload> payloads = request.blocks().stream()
-                .map(block -> new BlockPayload(block.type(), block.content(), block.sourceType(), block.sourceUrl(), block.sourceRef()))
+                .map(DocumentController::toBlockPayload)
                 .toList();
         documents.replaceBlocks(id, payloads, memberId, ChangeCause.MANUAL);
         return ResponseEntity.noContent().build();
@@ -211,6 +212,13 @@ public class DocumentController {
                 block.getProvenance().getSourceRef(),
                 block.getUpdatedAt()
         );
+    }
+
+    private static BlockPayload toBlockPayload(BlockRequest block) {
+        if (block == null) {
+            throw new ValidationException("block is required");
+        }
+        return new BlockPayload(block.type(), block.content(), block.sourceType(), block.sourceUrl(), block.sourceRef());
     }
 
     private static CorrectionFindingResponse toCorrectionFinding(CorrectionFinding finding) {

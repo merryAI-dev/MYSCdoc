@@ -29,9 +29,16 @@ public class SnapshotCommitService {
         }
         UUID resolvedEditorId = editorId == null ? systemMemberId() : editorId;
         List<BlockPayload> payloads = blocks.stream()
-                .map(block -> new BlockPayload(block.type(), block.content(), block.sourceType(), block.sourceUrl(), block.sourceRef()))
+                .map(this::toPayload)
                 .toList();
         documents.replaceBlocks(documentId, payloads, resolvedEditorId, ChangeCause.SNAPSHOT_COMMIT);
+    }
+
+    private BlockPayload toPayload(BlockRequest block) {
+        if (block == null) {
+            throw new ValidationException("block is required");
+        }
+        return new BlockPayload(block.type(), block.content(), block.sourceType(), block.sourceUrl(), block.sourceRef());
     }
 
     private UUID systemMemberId() {

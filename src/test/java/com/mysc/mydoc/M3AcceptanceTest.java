@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -179,6 +180,17 @@ class M3AcceptanceTest {
                 ORDER BY created_at DESC
                 LIMIT 1
                 """, UUID.class, documentId)).isEqualTo(systemMemberId);
+
+        List<Object> snapshotBlocksWithNull = new ArrayList<>();
+        snapshotBlocksWithNull.add(null);
+        ResponseEntity<Map> nullSnapshotBlock = restTemplate.exchange(
+                "/api/internal/snapshots",
+                HttpMethod.POST,
+                bearerEntity(Map.of("documentId", documentId.toString(), "editorId", memberId.toString(), "blocks", snapshotBlocksWithNull), INTERNAL_TOKEN),
+                Map.class
+        );
+        assertThat(nullSnapshotBlock.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(nullSnapshotBlock.getBody()).containsEntry("status", 400);
 
         List<HttpStatusCode> concurrentSnapshotStatuses = IntStream.range(0, 8)
                 .parallel()
