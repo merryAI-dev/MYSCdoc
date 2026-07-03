@@ -51,6 +51,14 @@ class M0AcceptanceTest {
     }
 
     @Test
+    void openApiDocs_areExposed() {
+        ResponseEntity<Map> response = restTemplate.getForEntity("/v3/api-docs", Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).containsEntry("openapi", "3.0.1");
+    }
+
+    @Test
     void flyway_createsV1Tables() {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
