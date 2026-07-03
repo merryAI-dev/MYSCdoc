@@ -156,7 +156,7 @@ public class McpToolService {
 
     private String searchDocuments(Map<String, Object> arguments) {
         String query = requiredNonBlankString(arguments, "query");
-        int limit = Math.min(((Number) arguments.getOrDefault("limit", DEFAULT_SEARCH_LIMIT)).intValue(), MAX_SEARCH_LIMIT);
+        int limit = limit(arguments);
         UUID spaceId = null;
         if (arguments.get("spaceSlug") instanceof String slug && !slug.isBlank()) {
             spaceId = spaces.findBySlug(slug)
@@ -282,6 +282,9 @@ public class McpToolService {
     }
 
     private String requiredString(Map<String, Object> arguments, String name) {
+        if (arguments == null) {
+            throw new ValidationException(name + " is required");
+        }
         Object value = arguments.get(name);
         if (value instanceof String text) {
             return text;
@@ -295,6 +298,14 @@ public class McpToolService {
             return value;
         }
         throw new ValidationException(name + " is required");
+    }
+
+    private int limit(Map<String, Object> arguments) {
+        Object value = arguments.getOrDefault("limit", DEFAULT_SEARCH_LIMIT);
+        if (value instanceof Number number) {
+            return Math.min(number.intValue(), MAX_SEARCH_LIMIT);
+        }
+        throw new ValidationException("limit is invalid");
     }
 
     private BlockPayload payload(BlockType type, JsonNode content) {
