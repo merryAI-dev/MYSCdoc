@@ -145,6 +145,7 @@ class M6AcceptanceTest {
         ), ownerId));
         assertThat(searchText).contains("URL: http://mydoc.test/d/" + documentId);
         assertThat(searchText).contains("⚠️ 이 문서는 오래됐을 수 있어요 (STALE)");
+        assertThat(searchText).contains("URL: http://mydoc.test/d/" + documentId + "\n\n");
 
         Map<String, Object> invalidSearchLimit = mcp("tools/call", Map.of(
                 "name", "search_documents",

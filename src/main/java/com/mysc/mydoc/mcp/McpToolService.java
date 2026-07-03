@@ -180,6 +180,7 @@ public class McpToolService {
                     baseUrl,
                     document.getId()
             ));
+            builder.append("\n");
         }
         return builder.toString();
     }
