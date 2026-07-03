@@ -14,10 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -150,6 +148,13 @@ class M4AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '222.1'", Integer.class)).isZero();
         assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("요약에 실패했어요"));
 
+        slack.threads.put("C1:225.1", new SlackThread("225.1", "https://slack.test/archives/C1/p2255", List.of(new SlackMessage("U1", "보람", "null summary failure", "225.1"))));
+        summaryClient.responses.add(null);
+        summaryClient.responses.add(null);
+        ingest.onReactionAdded("C1", "225.1", "U1");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '225.1'", Integer.class)).isZero();
+        assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("요약에 실패했어요"));
+
         slack.threads.put("C1:224.2", new SlackThread("224.1", "https://slack.test/archives/C1/p2244", List.of(new SlackMessage("U1", "보람", "reply reaction failure", "224.2"))));
         summaryClient.responses.add("not json");
         summaryClient.responses.add("still not json");
@@ -245,15 +250,17 @@ class M4AcceptanceTest {
     }
 
     static class FakeThreadSummaryClient implements ThreadSummaryClient {
-        final Queue<String> responses = new ConcurrentLinkedQueue<>();
+        final List<String> responses = new ArrayList<>();
+        int index;
 
         @Override
         public String summarize(String systemPrompt, String userPrompt) {
-            return responses.remove();
+            return responses.get(index++);
         }
 
         void reset() {
             responses.clear();
+            index = 0;
         }
     }
 }

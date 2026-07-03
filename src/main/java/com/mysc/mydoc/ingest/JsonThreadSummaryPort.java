@@ -43,6 +43,9 @@ public class JsonThreadSummaryPort implements ThreadSummaryPort {
     }
 
     private ThreadSummary parse(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            throw new ValidationException("summary response is not JSON");
+        }
         int start = raw.indexOf('{');
         int end = raw.lastIndexOf('}');
         if (start < 0 || end < start) {
