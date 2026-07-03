@@ -131,14 +131,15 @@ class M5AcceptanceTest {
         assertThat(content).extracting(item -> item.get("id")).contains(neverVerifiedDoc.toString());
 
         correctionClient.responses.add("""
-                {"score":85,"findings":[{"category":"TERMINOLOGY","blockPosition":1,"original":"단일 진실 공급원","suggestion":"믿고 참고할 기준","reason":"직역투를 줄이면 더 자연스러워요."},{"category":"SPELLING","blockPosition":99,"original":"x","suggestion":"y","reason":"범위 밖"}]}
+                {"score":123,"findings":[{"category":"TERMINOLOGY","blockPosition":1,"original":"단일 진실 공급원","suggestion":"믿고 참고할 기준","reason":"직역투를 줄이면 더 자연스러워요."},{"category":"TYPO","blockPosition":1,"original":"x","suggestion":"y","reason":"범위 밖"},{"category":"SPELLING","blockPosition":99,"original":"x","suggestion":"y","reason":"범위 밖"}]}
                 """);
         ResponseEntity<Map> corrections = exchange("/api/documents/" + neverVerifiedDoc + "/corrections", HttpMethod.POST, null, memberId);
         assertThat(corrections.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(corrections.getBody()).containsEntry("score", 85);
+        assertThat(corrections.getBody()).containsEntry("score", 100);
         List<Map<String, Object>> findings = (List<Map<String, Object>>) corrections.getBody().get("findings");
         assertThat(findings).hasSize(1);
         assertThat(findings.get(0)).containsEntry("blockPosition", 1);
+        assertThat(findings.get(0)).containsEntry("category", "TERMINOLOGY");
     }
 
     private UUID createActiveDocument(String title) {

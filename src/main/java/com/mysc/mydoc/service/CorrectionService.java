@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CorrectionService {
+    private static final Set<String> CATEGORIES = Set.of("SPELLING", "TERMINOLOGY", "PASSIVE_VOICE", "STRUCTURE");
     private static final String SYSTEM_PROMPT = """
             당신은 사내 문서의 교정 편집자입니다. 아래 채점 기준으로 문서를 평가하고 개선안을 제시하세요.
             - SPELLING: 맞춤법·띄어쓰기 오류
@@ -53,10 +54,11 @@ public class CorrectionService {
         List<Block> orderedBlocks = blocks.findByDocumentIdOrderByPosition(documentId);
         CorrectionResult result = parse(client.review(SYSTEM_PROMPT, userPrompt(document, orderedBlocks)));
         Set<Integer> validPositions = orderedBlocks.stream().map(Block::getPosition).collect(Collectors.toSet());
+        List<CorrectionFinding> findings = result.findings() == null ? List.of() : result.findings();
         return new CorrectionResult(
-                result.score(),
-                result.findings().stream()
-                        .filter(finding -> validPositions.contains(finding.blockPosition()))
+                Math.max(0, Math.min(100, result.score())),
+                findings.stream()
+                        .filter(finding -> CATEGORIES.contains(finding.category()) && validPositions.contains(finding.blockPosition()))
                         .limit(10)
                         .toList()
         );
