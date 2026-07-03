@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class SearchController {
+    private static final String DEFAULT_LIMIT = "10"; // 03-api-spec.md
+
     private final SearchService search;
 
     public SearchController(SearchService search) {
@@ -22,7 +24,7 @@ public class SearchController {
     SearchResponse search(
             @RequestParam String q,
             @RequestParam(required = false) UUID spaceId,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = DEFAULT_LIMIT) int limit
     ) {
         return new SearchResponse(search.hybridSearch(q, spaceId, limit).stream().map(SearchController::toResponse).toList());
     }

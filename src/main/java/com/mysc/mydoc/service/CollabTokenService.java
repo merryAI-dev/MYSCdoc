@@ -16,7 +16,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class CollabTokenService {
-    public static final int EXPIRES_IN_SECONDS = 3600;
+    public static final int EXPIRES_IN_SECONDS = 3600; // 03-api-spec.md
 
     private final DocumentService documents;
     private final ObjectMapper objectMapper;

@@ -15,6 +15,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "document")
 public class Document {
+    private static final int DEFAULT_TTL_DAYS = 90; // 04-database.md
+
     @Id private UUID id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "space_id") private Space space;
     @Column(nullable = false) private String title;
@@ -33,7 +35,7 @@ public class Document {
         this.title = title;
         this.owner = owner;
         this.status = DocStatus.DRAFT;
-        this.ttlDays = 90;
+        this.ttlDays = DEFAULT_TTL_DAYS;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
     }
