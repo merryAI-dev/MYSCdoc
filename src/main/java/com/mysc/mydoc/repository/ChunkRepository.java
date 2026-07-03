@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ChunkRepository extends JpaRepository<Chunk, UUID> {
+    String TOP_HITS_LIMIT_CLAUSE = "LIMIT 20"; // 07-ai-pipeline.md
+
     @Modifying
     @Query("delete from Chunk c where c.documentId = :documentId")
     void deleteByDocumentId(@Param("documentId") UUID documentId);
@@ -19,8 +21,7 @@ public interface ChunkRepository extends JpaRepository<Chunk, UUID> {
             WHERE d.status IN ('ACTIVE','STALE')
               AND (CAST(:spaceId AS uuid) IS NULL OR d.space_id = CAST(:spaceId AS uuid))
             ORDER BY c.embedding <=> CAST(:queryVector AS vector)
-            LIMIT 20
-            """, nativeQuery = true)
+            """ + TOP_HITS_LIMIT_CLAUSE, nativeQuery = true)
     List<ChunkSearchRow> vectorHits(@Param("queryVector") String queryVector, @Param("spaceId") UUID spaceId);
 
     @Query(value = """
@@ -30,7 +31,6 @@ public interface ChunkRepository extends JpaRepository<Chunk, UUID> {
               AND (CAST(:spaceId AS uuid) IS NULL OR d.space_id = CAST(:spaceId AS uuid))
               AND c.ts @@ plainto_tsquery('simple', :query)
             ORDER BY ts_rank(c.ts, plainto_tsquery('simple', :query)) DESC
-            LIMIT 20
-            """, nativeQuery = true)
+            """ + TOP_HITS_LIMIT_CLAUSE, nativeQuery = true)
     List<ChunkSearchRow> keywordHits(@Param("query") String query, @Param("spaceId") UUID spaceId);
 }

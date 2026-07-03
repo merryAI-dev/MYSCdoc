@@ -9,6 +9,8 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class JsonThreadSummaryPort implements ThreadSummaryPort {
+    private static final int MAX_JSON_PARSE_ATTEMPTS = 2; // 10-milestones.md
+
     private static final String SYSTEM_PROMPT = """
             당신은 사내 문서 플랫폼의 기록 담당자입니다. Slack 스레드를 읽고, 나중에 다른 팀원이나
             AI가 참고할 수 있는 결정 기록 문서를 만듭니다. 스레드에 없는 내용을 지어내지 마세요.
@@ -32,7 +34,7 @@ public class JsonThreadSummaryPort implements ThreadSummaryPort {
         }
         String userPrompt = userPrompt(messages);
         RuntimeException lastFailure = null;
-        for (int attempt = 0; attempt < 2; attempt++) {
+        for (int attempt = 0; attempt < MAX_JSON_PARSE_ATTEMPTS; attempt++) {
             try {
                 return parse(summaryClient.summarize(SYSTEM_PROMPT, userPrompt));
             } catch (RuntimeException exception) {

@@ -13,11 +13,14 @@ import org.hibernate.type.SqlTypes;
 @Entity
 @Table(name = "chunk")
 public class Chunk {
+    private static final int EMBEDDING_DIMENSIONS = 1536; // 07-ai-pipeline.md
+    private static final String EMBEDDING_COLUMN_TYPE = "vector(1536)"; // 04-database.md
+
     @Id private UUID id;
     @Column(name = "document_id", nullable = false) private UUID documentId;
     @Column(nullable = false) private String headingPath;
     @Column(nullable = false, columnDefinition = "text") private String text;
-    @Array(length = 1536) @JdbcTypeCode(SqlTypes.VECTOR) @Column(columnDefinition = "vector(1536)")
+    @Array(length = EMBEDDING_DIMENSIONS) @JdbcTypeCode(SqlTypes.VECTOR) @Column(columnDefinition = EMBEDDING_COLUMN_TYPE)
     private float[] embedding;
     @Column(nullable = false) private Instant createdAt;
 
