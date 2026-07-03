@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: mydoc
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/mydoc}
+    username: ${DB_USERNAME:mydoc}
+    password: ${DB_PASSWORD:changeme}
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+mydoc:
+  internal-service-token: ${INTERNAL_SERVICE_TOKEN:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
