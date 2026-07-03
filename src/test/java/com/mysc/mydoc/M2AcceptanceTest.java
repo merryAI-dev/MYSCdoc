@@ -130,6 +130,9 @@ class M2AcceptanceTest {
         putBlocks(longDoc, List.of(block("HEADING1", "짧은 섹션"), block("PARAGRAPH", "짧다")));
         waitForChunkCount(longDoc, 1);
 
+        putBlocks(longDoc, List.of());
+        waitForChunkCount(longDoc, 0);
+
         UUID draftDoc = createDocument("초안 문서");
         jdbcTemplate.update("""
                 INSERT INTO chunk (id, document_id, heading_path, text, embedding, created_at)
