@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -142,6 +144,23 @@ class M3AcceptanceTest {
         assertThat(internalBlocks.getBody()).hasSize(1);
         assertThat(jdbcTemplate.queryForObject("SELECT cause FROM revision WHERE document_id = ?", String.class, documentId))
                 .isEqualTo("SNAPSHOT_COMMIT");
+
+        List<HttpStatusCode> concurrentSnapshotStatuses = IntStream.range(0, 8)
+                .parallel()
+                .mapToObj(index -> restTemplate.exchange(
+                        "/api/internal/snapshots",
+                        HttpMethod.POST,
+                        bearerEntity(Map.of(
+                                "documentId", documentId.toString(),
+                                "editorId", memberId.toString(),
+                                "blocks", List.of(block("PARAGRAPH", "동시 스냅샷 " + index))
+                        ), INTERNAL_TOKEN),
+                        Void.class
+                ).getStatusCode())
+                .toList();
+        assertThat(concurrentSnapshotStatuses).allMatch(HttpStatusCode::is2xxSuccessful);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM block WHERE document_id = ?", Integer.class, documentId))
+                .isEqualTo(1);
 
         ResponseEntity<Void> archive = restTemplate.exchange(
                 "/api/documents/" + documentId + "/archive",

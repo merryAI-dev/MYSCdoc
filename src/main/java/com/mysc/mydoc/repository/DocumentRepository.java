@@ -2,6 +2,7 @@ package com.mysc.mydoc.repository;
 
 import com.mysc.mydoc.domain.DocStatus;
 import com.mysc.mydoc.domain.Document;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -9,11 +10,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface DocumentRepository extends JpaRepository<Document, UUID> {
     @EntityGraph(attributePaths = {"space", "owner"})
     java.util.Optional<Document> findById(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from Document d join fetch d.space join fetch d.owner where d.id = :id")
+    java.util.Optional<Document> findLockedById(@Param("id") UUID id);
 
     @EntityGraph(attributePaths = {"space", "owner"})
     Page<Document> findBySpaceIdAndStatusNot(UUID spaceId, DocStatus excluded, Pageable pageable);

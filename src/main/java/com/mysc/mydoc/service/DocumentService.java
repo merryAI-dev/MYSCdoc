@@ -96,7 +96,8 @@ public class DocumentService {
 
     @Transactional
     public void replaceBlocks(UUID docId, List<BlockPayload> payloads, UUID editorId, ChangeCause cause) {
-        Document document = get(docId);
+        Document document = documents.findLockedById(docId)
+                .orElseThrow(() -> new NotFoundException("document not found: " + docId));
         if (!members.existsById(editorId)) {
             throw new NotFoundException("member not found: " + editorId);
         }

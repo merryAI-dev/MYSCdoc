@@ -18,9 +18,6 @@ const INTERNAL_SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || ''
 const JAVA_BASE_URL = process.env.JAVA_BASE_URL || 'http://localhost:8080'
 const DEBOUNCE_MS = Number(process.env.DEBOUNCE_MS || 5000)
 const DEBOUNCE_MAX_MS = Number(process.env.DEBOUNCE_MAX_MS || 30000)
-const RRF_UNUSED = 0
-
-void RRF_UNUSED
 
 const { Pool } = pg
 const pool = new Pool({ connectionString: DATABASE_URL })

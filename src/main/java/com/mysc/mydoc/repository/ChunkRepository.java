@@ -4,11 +4,14 @@ import com.mysc.mydoc.domain.Chunk;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ChunkRepository extends JpaRepository<Chunk, UUID> {
-    void deleteByDocumentId(UUID documentId);
+    @Modifying
+    @Query("delete from Chunk c where c.documentId = :documentId")
+    void deleteByDocumentId(@Param("documentId") UUID documentId);
 
     @Query(value = """
             SELECT c.id AS id, c.document_id AS documentId, c.heading_path AS headingPath, c.text AS text
