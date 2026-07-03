@@ -92,6 +92,10 @@ class M1AcceptanceTest {
         assertThat(member.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         UUID memberId = id(member);
 
+        ResponseEntity<Map> me = exchange("/api/members/me", HttpMethod.GET, null, memberId);
+        assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(me.getBody()).containsEntry("email", "member@mysc.co.kr");
+
         ResponseEntity<Map> document = exchange(
                 "/api/documents",
                 HttpMethod.POST,
@@ -101,6 +105,15 @@ class M1AcceptanceTest {
         assertThat(document.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(document.getBody()).containsEntry("status", "DRAFT");
         UUID documentId = id(document);
+
+        ResponseEntity<Map> renamed = exchange(
+                "/api/documents/" + documentId + "/title",
+                HttpMethod.PUT,
+                Map.of("title", "온보딩 가이드 v2"),
+                memberId
+        );
+        assertThat(renamed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(renamed.getBody()).containsEntry("title", "온보딩 가이드 v2");
 
         ResponseEntity<Void> firstBlocks = exchangeVoid(
                 "/api/documents/" + documentId + "/blocks",
@@ -129,6 +142,12 @@ class M1AcceptanceTest {
         ResponseEntity<Map> revisions = exchange("/api/documents/" + documentId + "/revisions", HttpMethod.GET, null, memberId);
         assertThat(revisions.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(revisions.getBody()).containsEntry("totalElements", 2);
+        List<Map<String, Object>> revisionSummaries = (List<Map<String, Object>>) revisions.getBody().get("content");
+        assertThat(revisionSummaries.get(0)).doesNotContainKey("snapshot");
+        String revisionId = (String) revisionSummaries.get(0).get("id");
+        ResponseEntity<Map> revisionDetail = exchange("/api/revisions/" + revisionId, HttpMethod.GET, null, memberId);
+        assertThat(revisionDetail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(revisionDetail.getBody()).containsKey("snapshot");
 
         Map<String, Object> nullBlocksBody = new LinkedHashMap<>();
         nullBlocksBody.put("blocks", null);
@@ -174,6 +193,15 @@ class M1AcceptanceTest {
         assertThat(ownerVerify.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(ownerVerify.getBody().get("verifiedAt")).isNotNull();
 
+        ResponseEntity<Map> changedOwner = exchange(
+                "/api/documents/" + documentId + "/owner",
+                HttpMethod.PUT,
+                Map.of("ownerId", otherMemberId.toString()),
+                memberId
+        );
+        assertThat(changedOwner.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat((Map<String, Object>) changedOwner.getBody().get("owner")).containsEntry("id", otherMemberId.toString());
+
         ResponseEntity<Map> missing = exchange("/api/documents/" + UUID.randomUUID(), HttpMethod.GET, null, memberId);
         assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
@@ -189,7 +217,7 @@ class M1AcceptanceTest {
                 "/api/documents/" + documentId + "/archive",
                 HttpMethod.POST,
                 null,
-                memberId
+                otherMemberId
         );
         assertThat(archive.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 

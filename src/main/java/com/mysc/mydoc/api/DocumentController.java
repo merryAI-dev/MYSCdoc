@@ -74,6 +74,9 @@ public class DocumentController {
             @RequestBody DocumentCreateRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        if (request == null) {
+            throw new ValidationException("document request is required");
+        }
         Document document = documents.create(request.spaceId(), request.title(), memberId);
         return ResponseEntity.created(URI.create("/api/documents/" + document.getId())).body(toResponse(document));
     }
@@ -95,6 +98,9 @@ public class DocumentController {
 
     @PutMapping("/api/documents/{id}/title")
     DocumentResponse rename(@PathVariable UUID id, @RequestBody TitleRequest request) {
+        if (request == null) {
+            throw new ValidationException("title is required");
+        }
         return toResponse(documents.rename(id, request.title()));
     }
 
@@ -139,6 +145,9 @@ public class DocumentController {
             @RequestBody OwnerRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        if (request == null) {
+            throw new ValidationException("ownerId is required");
+        }
         UUID oldOwnerId = documents.get(id).getOwner().getId();
         documents.changeOwner(id, request.ownerId(), memberId);
         editingPlane.kick(id, oldOwnerId);
