@@ -3,12 +3,14 @@ package com.mysc.mydoc;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mysc.mydoc.ingest.SystemMemberInitializer;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -144,6 +146,30 @@ class M3AcceptanceTest {
         assertThat(internalBlocks.getBody()).hasSize(1);
         assertThat(jdbcTemplate.queryForObject("SELECT cause FROM revision WHERE document_id = ?", String.class, documentId))
                 .isEqualTo("SNAPSHOT_COMMIT");
+
+        Map<String, Object> snapshotWithoutEditorBody = new HashMap<>();
+        snapshotWithoutEditorBody.put("documentId", documentId.toString());
+        snapshotWithoutEditorBody.put("editorId", null);
+        snapshotWithoutEditorBody.put("blocks", List.of(block("PARAGRAPH", "시스템 멤버 스냅샷")));
+        ResponseEntity<Void> snapshotWithoutEditor = restTemplate.exchange(
+                "/api/internal/snapshots",
+                HttpMethod.POST,
+                bearerEntity(snapshotWithoutEditorBody, INTERNAL_TOKEN),
+                Void.class
+        );
+        assertThat(snapshotWithoutEditor.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        UUID systemMemberId = jdbcTemplate.queryForObject(
+                "SELECT id FROM member WHERE email = ?",
+                UUID.class,
+                SystemMemberInitializer.SYSTEM_MEMBER_EMAIL
+        );
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT editor_id
+                FROM revision
+                WHERE document_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """, UUID.class, documentId)).isEqualTo(systemMemberId);
 
         List<HttpStatusCode> concurrentSnapshotStatuses = IntStream.range(0, 8)
                 .parallel()

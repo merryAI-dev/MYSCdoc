@@ -95,6 +95,7 @@ function scheduleSnapshot(documentName, document) {
 
 async function flushSnapshot(documentName, document, retry = true) {
   const timer = snapshotTimers.get(documentName)
+  const hadPendingSnapshot = Boolean(timer)
   if (timer?.debounce) {
     clearTimeout(timer.debounce)
   }
@@ -103,8 +104,8 @@ async function flushSnapshot(documentName, document, retry = true) {
   }
   snapshotTimers.delete(documentName)
 
-  const editorId = lastEditors.get(documentName)
-  if (!editorId) {
+  const editorId = lastEditors.get(documentName) || null
+  if (!editorId && !hadPendingSnapshot) {
     return
   }
 
