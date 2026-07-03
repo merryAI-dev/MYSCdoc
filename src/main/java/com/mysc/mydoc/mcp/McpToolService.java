@@ -110,6 +110,7 @@ public class McpToolService {
 
     private McpSchema.CallToolResult call(McpSyncServerExchange exchange, McpSchema.CallToolRequest request) {
         String value;
+        boolean isError = false;
         try {
             value = switch (request.name()) {
                 case "search_documents" -> searchDocuments(request.arguments());
@@ -122,12 +123,15 @@ public class McpToolService {
             value = "문서를 찾을 수 없어요: " + exception.getMessage();
         } catch (ForbiddenException exception) {
             value = "owner만 검증할 수 있어요";
+        } catch (ValidationException exception) {
+            value = exception.getMessage();
+            isError = true;
         } catch (RuntimeException exception) {
             value = exception.getMessage();
         }
         return McpSchema.CallToolResult.builder()
                 .addTextContent(value)
-                .isError(false)
+                .isError(isError)
                 .build();
     }
 
@@ -143,7 +147,11 @@ public class McpToolService {
     }
 
     private UUID documentId(Map<String, Object> arguments) {
-        return UUID.fromString(requiredNonBlankString(arguments, "documentId"));
+        try {
+            return UUID.fromString(requiredNonBlankString(arguments, "documentId"));
+        } catch (IllegalArgumentException exception) {
+            throw new ValidationException("documentId is invalid");
+        }
     }
 
     private String searchDocuments(Map<String, Object> arguments) {

@@ -174,6 +174,13 @@ class M6AcceptanceTest {
         assertThat((Map<String, Object>) invalidDraft.get("result")).containsEntry("isError", true);
         assertThat(toolText(invalidDraft)).contains("markdown");
 
+        Map<String, Object> invalidDocumentId = mcp("tools/call", Map.of(
+                "name", "get_document",
+                "arguments", Map.of("documentId", "not-a-uuid")
+        ), ownerId);
+        assertThat((Map<String, Object>) invalidDocumentId.get("result")).containsEntry("isError", true);
+        assertThat(toolText(invalidDocumentId)).contains("documentId");
+
         String verifyText = toolText(mcp("tools/call", Map.of("name", "verify_document", "arguments", Map.of("documentId", documentId.toString())), otherId));
         assertThat(verifyText).isEqualTo("owner만 검증할 수 있어요");
 
