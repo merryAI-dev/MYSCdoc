@@ -7,12 +7,15 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -39,25 +42,29 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String path = request.getRequestURI();
-        if (path.equals("/api/internal/collab-tokens")) {
-            if (!authenticateMember(request, response, path)) {
+        try {
+            String path = request.getRequestURI();
+            if (path.equals("/api/internal/collab-tokens")) {
+                if (!authenticateMember(request, response, path)) {
+                    return;
+                }
+            } else if (path.startsWith("/api/internal/")) {
+                if (StringUtils.hasText(internalServiceToken)
+                        && ("Bearer " + internalServiceToken).equals(request.getHeader("Authorization"))) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                writeProblem(response, HttpStatus.UNAUTHORIZED, "Missing or invalid internal token", path);
                 return;
+            } else if (path.startsWith("/api/") || path.equals("/mcp")) {
+                if (!authenticateMember(request, response, path)) {
+                    return;
+                }
             }
-        } else if (path.startsWith("/api/internal/")) {
-            if (StringUtils.hasText(internalServiceToken)
-                    && ("Bearer " + internalServiceToken).equals(request.getHeader("Authorization"))) {
-                filterChain.doFilter(request, response);
-                return;
-            }
-            writeProblem(response, HttpStatus.UNAUTHORIZED, "Missing or invalid internal token", path);
-            return;
-        } else if (path.startsWith("/api/") || path.equals("/mcp")) {
-            if (!authenticateMember(request, response, path)) {
-                return;
-            }
+            filterChain.doFilter(request, response);
+        } finally {
+            SecurityContextHolder.clearContext();
         }
-        filterChain.doFilter(request, response);
     }
 
     private boolean authenticateMember(HttpServletRequest request, HttpServletResponse response, String path) throws IOException {
@@ -67,6 +74,9 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
             return false;
         }
         request.setAttribute(MEMBER_ID_ATTRIBUTE, memberId);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(memberId, null, List.of())
+        );
         return true;
     }
 

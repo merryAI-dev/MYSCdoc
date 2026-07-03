@@ -11,6 +11,7 @@ ext['testcontainers.version'] = '2.0.5'
 ext['springAi.version'] = '1.0.9'
 ext['slackSdk.version'] = '1.49.0'
 ext['mcpSdk.version'] = '2.0.0'
+ext['springdoc.version'] = '2.5.0'
 
 java {
     toolchain {
@@ -29,9 +30,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'org.hibernate.orm:hibernate-vector:6.5.3.Final'
+    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${property('springdoc.version')}"
     implementation 'org.springframework.ai:spring-ai-starter-model-openai'
     implementation 'org.springframework.ai:spring-ai-starter-model-anthropic'
     implementation "com.slack.api:bolt-socket-mode:${property('slackSdk.version')}"
