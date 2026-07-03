@@ -58,6 +58,9 @@ public class DocumentService {
 
     @Transactional
     public Document create(UUID spaceId, String title, UUID ownerId) {
+        if (spaceId == null) {
+            throw new ValidationException("spaceId is required");
+        }
         if (!StringUtils.hasText(title)) {
             throw new ValidationException("title is required");
         }
@@ -145,6 +148,9 @@ public class DocumentService {
 
     @Transactional
     public void changeOwner(UUID docId, UUID newOwnerId, UUID actorId) {
+        if (newOwnerId == null) {
+            throw new ValidationException("ownerId is required");
+        }
         Document document = get(docId);
         Member actor = member(actorId);
         if (actor.getRole() != MemberRole.ADMIN && !document.getOwner().getId().equals(actorId)) {

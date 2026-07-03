@@ -106,6 +106,18 @@ class M1AcceptanceTest {
         assertThat(document.getBody()).containsEntry("status", "DRAFT");
         UUID documentId = id(document);
 
+        Map<String, Object> nullSpaceDocumentBody = new LinkedHashMap<>();
+        nullSpaceDocumentBody.put("spaceId", null);
+        nullSpaceDocumentBody.put("title", "스페이스 누락 문서");
+        ResponseEntity<Map> nullSpaceDocument = exchange(
+                "/api/documents",
+                HttpMethod.POST,
+                nullSpaceDocumentBody,
+                memberId
+        );
+        assertThat(nullSpaceDocument.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(nullSpaceDocument.getBody()).containsEntry("status", 400);
+
         ResponseEntity<Map> renamed = exchange(
                 "/api/documents/" + documentId + "/title",
                 HttpMethod.PUT,
@@ -212,6 +224,17 @@ class M1AcceptanceTest {
         );
         assertThat(changedOwner.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat((Map<String, Object>) changedOwner.getBody().get("owner")).containsEntry("id", otherMemberId.toString());
+
+        Map<String, Object> nullOwnerBody = new LinkedHashMap<>();
+        nullOwnerBody.put("ownerId", null);
+        ResponseEntity<Map> nullOwner = exchange(
+                "/api/documents/" + documentId + "/owner",
+                HttpMethod.PUT,
+                nullOwnerBody,
+                otherMemberId
+        );
+        assertThat(nullOwner.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(nullOwner.getBody()).containsEntry("status", 400);
 
         ResponseEntity<Map> missing = exchange("/api/documents/" + UUID.randomUUID(), HttpMethod.GET, null, memberId);
         assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
