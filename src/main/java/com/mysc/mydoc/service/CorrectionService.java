@@ -17,6 +17,9 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class CorrectionService {
+    private static final int MIN_SCORE = 0; // 07-ai-pipeline.md
+    private static final int MAX_SCORE = 100; // 07-ai-pipeline.md
+    private static final int MAX_FINDINGS = 10; // 07-ai-pipeline.md
     private static final Set<String> CATEGORIES = Set.of("SPELLING", "TERMINOLOGY", "PASSIVE_VOICE", "STRUCTURE");
     private static final String SYSTEM_PROMPT = """
             당신은 사내 문서의 교정 편집자입니다. 아래 채점 기준으로 문서를 평가하고 개선안을 제시하세요.
@@ -57,10 +60,10 @@ public class CorrectionService {
         Set<Integer> validPositions = orderedBlocks.stream().map(Block::getPosition).collect(Collectors.toSet());
         List<CorrectionFinding> findings = result.findings() == null ? List.of() : result.findings();
         return new CorrectionResult(
-                Math.max(0, Math.min(100, result.score())),
+                Math.max(MIN_SCORE, Math.min(MAX_SCORE, result.score())),
                 findings.stream()
                         .filter(finding -> validFinding(finding, validPositions))
-                        .limit(10)
+                        .limit(MAX_FINDINGS)
                         .toList()
         );
     }
