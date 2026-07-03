@@ -46,6 +46,9 @@ public class InternalController {
             @RequestBody CollabTokenRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        if (request == null) {
+            throw new ValidationException("collab token request is required");
+        }
         return new CollabTokenResponse(
                 collabTokens.issue(request.documentId(), memberId),
                 CollabTokenService.EXPIRES_IN_SECONDS
