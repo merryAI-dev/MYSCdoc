@@ -94,6 +94,7 @@ public class DocumentService {
         }
         Document document = get(docId);
         document.rename(title);
+        events.publishEvent(new DocumentChangedEvent(docId));
         return document;
     }
 

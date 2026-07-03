@@ -109,6 +109,9 @@ class M2AcceptanceTest {
                 """, String.class, accountDoc);
         assertThat(headingPaths).containsExactlyInAnyOrder("온보딩 가이드 > 계정 발급", "온보딩 가이드 > 휴가 신청");
 
+        exchange("/api/documents/" + accountDoc + "/title", HttpMethod.PUT, Map.of("title", "온보딩 가이드 v2"), memberId);
+        waitForHeadingPath(accountDoc, "온보딩 가이드 v2 > 계정 발급");
+
         UUID nestedDoc = createDocument("계층 문서");
         putBlocks(nestedDoc, List.of(
                 block("HEADING1", "상위"),
@@ -178,6 +181,18 @@ class M2AcceptanceTest {
         }
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM chunk WHERE document_id = ?", Integer.class, documentId);
         assertThat(count).isEqualTo(expected);
+    }
+
+    private void waitForHeadingPath(UUID documentId, String expected) throws Exception {
+        for (int i = 0; i < 60; i++) {
+            List<String> paths = jdbcTemplate.queryForList("SELECT heading_path FROM chunk WHERE document_id = ?", String.class, documentId);
+            if (paths.contains(expected)) {
+                return;
+            }
+            Thread.sleep(250);
+        }
+        assertThat(jdbcTemplate.queryForList("SELECT heading_path FROM chunk WHERE document_id = ?", String.class, documentId))
+                .contains(expected);
     }
 
     private ResponseEntity<Map> exchange(String path, HttpMethod method, Object body, UUID memberId) {
