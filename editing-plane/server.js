@@ -16,8 +16,9 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
 const COLLAB_JWT_SECRET = process.env.COLLAB_JWT_SECRET || ''
 const INTERNAL_SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || ''
 const JAVA_BASE_URL = process.env.JAVA_BASE_URL || 'http://localhost:8080'
-const DEBOUNCE_MS = Number(process.env.DEBOUNCE_MS || 5000)
-const DEBOUNCE_MAX_MS = Number(process.env.DEBOUNCE_MAX_MS || 30000)
+const DEBOUNCE_MS = Number(process.env.DEBOUNCE_MS || 5000) // 05-editing-plane.md
+const DEBOUNCE_MAX_MS = Number(process.env.DEBOUNCE_MAX_MS || 30000) // 05-editing-plane.md
+const SNAPSHOT_RETRY_MS = 30000 // 05-editing-plane.md
 
 const { Pool } = pg
 const pool = new Pool({ connectionString: DATABASE_URL })
@@ -124,7 +125,7 @@ async function flushSnapshot(documentName, document, retry = true) {
       }),
     })
     if (response.status >= 500 && retry) {
-      setTimeout(() => flushSnapshot(documentName, document, false), 30000)
+      setTimeout(() => flushSnapshot(documentName, document, false), SNAPSHOT_RETRY_MS)
       return
     }
     if (!response.ok) {
@@ -132,7 +133,7 @@ async function flushSnapshot(documentName, document, retry = true) {
     }
   } catch (error) {
     if (retry) {
-      setTimeout(() => flushSnapshot(documentName, document, false), 30000)
+      setTimeout(() => flushSnapshot(documentName, document, false), SNAPSHOT_RETRY_MS)
     } else {
       console.error('snapshot commit failed', error)
     }
