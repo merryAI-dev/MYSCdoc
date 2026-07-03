@@ -1,5 +1,9 @@
 {
   "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node acceptance-test.js"
+  },
   "dependencies": {
     "@hocuspocus/extension-database": "^2.13.0",
     "@hocuspocus/extension-redis": "^2.13.0",
@@ -12,6 +16,7 @@
     "yjs": "^13.6.0"
   },
   "devDependencies": {
-    "@hocuspocus/provider": "^2.15.3"
+    "@hocuspocus/provider": "^2.15.3",
+    "ws": "^8.21.0"
   }
 }
