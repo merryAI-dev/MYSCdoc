@@ -40,6 +40,7 @@ public class ChunkingService {
     @Transactional
     public void rechunk(UUID docId) {
         Document document = documents.get(docId);
+        chunks.deleteByDocumentId(docId);
         List<Section> sections = sections(document, blocks.findByDocumentIdOrderByPosition(docId));
         List<Section> pieces = new ArrayList<>();
         for (Section section : sections) {
@@ -48,7 +49,6 @@ public class ChunkingService {
             }
         }
         if (pieces.isEmpty()) {
-            chunks.deleteByDocumentId(docId);
             return;
         }
 
@@ -62,7 +62,6 @@ public class ChunkingService {
         for (int i = 0; i < pieces.size(); i++) {
             saved.add(new Chunk(docId, pieces.get(i).headingPath(), pieces.get(i).text(), vectors.get(i)));
         }
-        chunks.deleteByDocumentId(docId);
         chunks.saveAll(saved);
     }
 
