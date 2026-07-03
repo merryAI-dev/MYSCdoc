@@ -29,6 +29,14 @@ const redisUrl = new URL(REDIS_URL)
 const lastEditors = new Map()
 const snapshotTimers = new Map()
 const connections = new Map()
+const REDIS_HOOKS = [
+  'afterLoadDocument',
+  'onStoreDocument',
+  'afterStoreDocument',
+  'onAwarenessUpdate',
+  'onChange',
+  'beforeBroadcastStateless',
+]
 
 async function fetchDocument({ documentName }) {
   assertDocumentName(documentName)
@@ -290,15 +298,57 @@ function assertUuid(value, name) {
   }
 }
 
+function redisExtension() {
+  let available = false
+  const extension = new Redis({
+    host: redisUrl.hostname,
+    port: Number(redisUrl.port || 6379),
+    options: {
+      connectTimeout: 500,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+      retryStrategy: attempt => Math.min(attempt * 50, 500),
+    },
+  })
+  for (const client of [extension.pub, extension.sub]) {
+    client.on('ready', () => {
+      available = true
+    })
+    client.on('error', error => {
+      available = false
+      console.error('Redis unavailable', error?.message || error)
+    })
+  }
+  return bestEffort(extension, REDIS_HOOKS, () => available)
+}
+
+function bestEffort(extension, hooks, isAvailable) {
+  for (const hook of hooks) {
+    const original = extension[hook]?.bind(extension)
+    if (!original) {
+      continue
+    }
+    extension[hook] = async (...args) => {
+      if (!isAvailable()) {
+        return undefined
+      }
+      try {
+        return await original(...args)
+      } catch (error) {
+        console.error(`Redis ${hook} failed`, error?.message || error)
+        return undefined
+      }
+    }
+  }
+  return extension
+}
+
 const server = new Hocuspocus({
   port: PORT,
   debounce: DEBOUNCE_MS,
   maxDebounce: DEBOUNCE_MAX_MS,
   extensions: [
-    new Redis({
-      host: redisUrl.hostname,
-      port: Number(redisUrl.port || 6379),
-    }),
+    redisExtension(),
     new Database({
       fetch: fetchDocument,
       store: async () => {},
