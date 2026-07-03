@@ -76,6 +76,9 @@ public class CorrectionService {
     }
 
     private CorrectionResult parse(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            throw new ValidationException("correction response is not JSON");
+        }
         int start = raw.indexOf('{');
         int end = raw.lastIndexOf('}');
         if (start < 0 || end < start) {

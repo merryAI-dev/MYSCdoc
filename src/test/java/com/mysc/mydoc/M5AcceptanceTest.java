@@ -11,9 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -148,6 +146,10 @@ class M5AcceptanceTest {
         assertThat(findings).hasSize(1);
         assertThat(findings.get(0)).containsEntry("blockPosition", 1);
         assertThat(findings.get(0)).containsEntry("category", "TERMINOLOGY");
+
+        correctionClient.responses.add(null);
+        ResponseEntity<Map> nullCorrection = exchange("/api/documents/" + neverVerifiedDoc + "/corrections", HttpMethod.POST, null, memberId);
+        assertThat(nullCorrection.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     private UUID createActiveDocument(String title) {
@@ -201,11 +203,12 @@ class M5AcceptanceTest {
     }
 
     static class FakeCorrectionClient implements CorrectionClient {
-        final Queue<String> responses = new ConcurrentLinkedQueue<>();
+        final List<String> responses = new ArrayList<>();
+        int index;
 
         @Override
         public String review(String systemPrompt, String userPrompt) {
-            return responses.remove();
+            return responses.get(index++);
         }
     }
 }
