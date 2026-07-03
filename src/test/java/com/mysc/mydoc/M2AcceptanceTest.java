@@ -155,10 +155,42 @@ class M2AcceptanceTest {
                 "  "
         );
         assertThat(blank.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        UUID otherSpaceId = id(exchange("/api/spaces", HttpMethod.POST, Map.of("slug", "support-team", "name", "지원팀"), adminId));
+        UUID otherSpaceDoc = createDocument(otherSpaceId, "지원팀 계정 문서");
+        putBlocks(otherSpaceDoc, List.of(block("HEADING1", "계정 처리"), block("PARAGRAPH", "account routing은 지원팀에서 확인하세요.")));
+        waitForChunkCount(otherSpaceDoc, 1);
+
+        ResponseEntity<Map> limitedSpaceSearch = exchange(
+                "/api/search?q=account&spaceId=" + spaceId + "&limit=1",
+                HttpMethod.GET,
+                null,
+                memberId
+        );
+        List<Map<String, Object>> limitedHits = (List<Map<String, Object>>) limitedSpaceSearch.getBody().get("hits");
+        assertThat(limitedSpaceSearch.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(limitedHits).hasSize(1);
+        assertThat(limitedHits.get(0)).containsEntry("documentId", accountDoc.toString());
+
+        ResponseEntity<Map> otherSpaceSearch = exchange(
+                "/api/search?q=account&spaceId=" + otherSpaceId,
+                HttpMethod.GET,
+                null,
+                memberId
+        );
+        List<Map<String, Object>> otherSpaceHits = (List<Map<String, Object>>) otherSpaceSearch.getBody().get("hits");
+        assertThat(otherSpaceSearch.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(otherSpaceHits).extracting(hit -> hit.get("documentId"))
+                .contains(otherSpaceDoc.toString())
+                .doesNotContain(accountDoc.toString(), nestedDoc.toString());
     }
 
     private UUID createDocument(String title) {
-        return id(exchange("/api/documents", HttpMethod.POST, Map.of("spaceId", spaceId.toString(), "title", title), memberId));
+        return createDocument(spaceId, title);
+    }
+
+    private UUID createDocument(UUID targetSpaceId, String title) {
+        return id(exchange("/api/documents", HttpMethod.POST, Map.of("spaceId", targetSpaceId.toString(), "title", title), memberId));
     }
 
     private void putBlocks(UUID documentId, List<Map<String, Object>> blocks) {

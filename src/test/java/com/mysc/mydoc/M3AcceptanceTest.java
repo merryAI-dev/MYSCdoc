@@ -29,6 +29,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -129,6 +130,15 @@ class M3AcceptanceTest {
         );
         assertThat(missingDocumentIdToken.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(missingDocumentIdToken.getBody()).containsEntry("status", 400);
+
+        ResponseEntity<Map> nullTokenRequest = restTemplate.exchange(
+                "/api/internal/collab-tokens",
+                HttpMethod.POST,
+                jsonMemberEntity("null", memberId),
+                Map.class
+        );
+        assertThat(nullTokenRequest.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(nullTokenRequest.getBody()).containsEntry("status", 400);
 
         ResponseEntity<Map> forgedAuth = restTemplate.exchange(
                 "/api/internal/collab-tokens",
@@ -247,6 +257,13 @@ class M3AcceptanceTest {
     private HttpEntity<Object> memberEntity(Object body, UUID memberId) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Member-Id", memberId.toString());
+        return new HttpEntity<>(body, headers);
+    }
+
+    private HttpEntity<String> jsonMemberEntity(String body, UUID memberId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Member-Id", memberId.toString());
+        headers.setContentType(MediaType.APPLICATION_JSON);
         return new HttpEntity<>(body, headers);
     }
 
