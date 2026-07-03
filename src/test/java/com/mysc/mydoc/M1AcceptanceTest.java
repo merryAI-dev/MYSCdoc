@@ -81,6 +81,7 @@ class M1AcceptanceTest {
                 adminId
         );
         assertThat(duplicateSpace.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(duplicateSpace.getHeaders().getContentType().toString()).contains("application/problem+json");
         assertThat(duplicateSpace.getBody()).containsEntry("status", 400);
 
         ResponseEntity<Map> member = exchange(
@@ -280,6 +281,7 @@ class M1AcceptanceTest {
 
         ResponseEntity<Map> missing = exchange("/api/documents/" + UUID.randomUUID(), HttpMethod.GET, null, memberId);
         assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(missing.getHeaders().getContentType().toString()).contains("application/problem+json");
 
         ResponseEntity<Map> blankTitle = exchange(
                 "/api/documents",
