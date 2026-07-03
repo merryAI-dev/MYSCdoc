@@ -1,6 +1,7 @@
 package com.mysc.mydoc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.mysc.mydoc.ingest.SlackGateway;
 import com.mysc.mydoc.ingest.SlackIngestService;
@@ -149,6 +150,24 @@ class M4AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '222.1'", Integer.class)).isZero();
         assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("요약에 실패했어요"));
 
+        slack.failReplies = true;
+        slack.threads.put("C1:444.1", new SlackThread("444.1", "https://slack.test/archives/C1/p4444", List.of(new SlackMessage("U1", "보람", "Slack reply failure", "444.1"))));
+        summaryClient.responses.add("not json");
+        summaryClient.responses.add("still not json");
+        assertThatCode(() -> ingest.onReactionAdded("C1", "444.1", "U1")).doesNotThrowAnyException();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '444.1'", Integer.class)).isZero();
+        slack.failReplies = false;
+
+        slack.failReplies = true;
+        slack.threads.put("C1:555.1", new SlackThread("555.1", "https://slack.test/archives/C1/p5555", List.of(new SlackMessage("U1", "보람", "reply failure after ingest", "555.1"))));
+        summaryClient.responses.add("""
+                {"title":"reply failure 문서","sections":[{"heading":"결정 사항","paragraphs":["문서는 생성돼야 해요."]}]}
+                """);
+        assertThatCode(() -> ingest.onReactionAdded("C1", "555.1", "U1")).doesNotThrowAnyException();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '555.1'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document WHERE title = 'reply failure 문서'", Integer.class)).isEqualTo(1);
+        slack.failReplies = false;
+
         slack.threads.put("C1:333.1", new SlackThread("333.1", "https://slack.test/archives/C1/p3333", List.of(new SlackMessage("U9", "외부인", "owner fallback", "333.1"))));
         summaryClient.responses.add("""
                 {"title":"fallback 문서","sections":[{"heading":"결정 사항","paragraphs":["시스템 멤버가 owner예요."]}]}
@@ -173,6 +192,7 @@ class M4AcceptanceTest {
         final Map<String, SlackThread> threads = new ConcurrentHashMap<>();
         final Map<String, String> userEmails = new ConcurrentHashMap<>();
         final List<Reply> replies = new ArrayList<>();
+        boolean failReplies;
 
         @Override
         public SlackThread thread(String channelId, String messageTs) {
@@ -186,6 +206,9 @@ class M4AcceptanceTest {
 
         @Override
         public void reply(String channelId, String threadTs, String text) {
+            if (failReplies) {
+                throw new IllegalStateException("reply failed");
+            }
             replies.add(new Reply(channelId, threadTs, text));
         }
 
@@ -193,6 +216,7 @@ class M4AcceptanceTest {
             threads.clear();
             userEmails.clear();
             replies.clear();
+            failReplies = false;
         }
     }
 

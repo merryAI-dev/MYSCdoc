@@ -68,12 +68,12 @@ public class SlackIngestService {
             SlackThread thread = slackGateway.thread(channelId, messageTs);
             ingestLogs.findByChannelIdAndThreadTs(channelId, thread.threadTs())
                     .ifPresentOrElse(
-                            log -> slackGateway.reply(channelId, thread.threadTs(), documentUrl(log.getDocumentId())),
+                            log -> safeReply(slackGateway, channelId, thread.threadTs(), documentUrl(log.getDocumentId())),
                             () -> ingestThread(channelId, thread.threadTs(), thread.messages(), reactorUserId, thread.permalink())
                     );
         } catch (RuntimeException exception) {
             log.warn("Slack thread ingest failed", exception);
-            slackGateway.reply(channelId, messageTs, "요약에 실패했어요. 잠시 후 다시 이모지를 달아주세요.");
+            safeReply(slackGateway, channelId, messageTs, "요약에 실패했어요. 잠시 후 다시 이모지를 달아주세요.");
         }
     }
 
@@ -93,7 +93,7 @@ public class SlackIngestService {
         var document = documents.create(space.getId(), summary.title(), owner.getId());
         documents.replaceBlocks(document.getId(), blocks(summary, threadTs, permalink), owner.getId(), ChangeCause.SLACK_INGEST);
         ingestLogs.save(new SlackIngestLog(channelId, threadTs, document.getId()));
-        slack().reply(channelId, threadTs, documentUrl(document.getId()));
+        safeReply(slack(), channelId, threadTs, documentUrl(document.getId()));
         return document.getId();
     }
 
@@ -143,6 +143,14 @@ public class SlackIngestService {
 
     private String documentUrl(UUID documentId) {
         return documentBaseUrl + "/d/" + documentId;
+    }
+
+    private void safeReply(SlackGateway slackGateway, String channelId, String threadTs, String text) {
+        try {
+            slackGateway.reply(channelId, threadTs, text);
+        } catch (RuntimeException exception) {
+            log.warn("Slack reply failed", exception);
+        }
     }
 
     private SlackGateway slack() {
