@@ -113,7 +113,8 @@ class M6AcceptanceTest {
                 block("ORDERED_LIST", "첫 단계"),
                 block("CODE", "echo hi"),
                 block("QUOTE", "중요"),
-                block("TABLE", "ignored")
+                block("TABLE", "ignored"),
+                block("IMAGE", "https://mydoc.test/image.png")
         ));
         waitForChunkCount(documentId, 1);
         jdbcTemplate.update("UPDATE document SET status = 'STALE' WHERE id = ?", documentId);
@@ -139,13 +140,14 @@ class M6AcceptanceTest {
         assertThat(documentText).contains("> 중요");
         assertThat(documentText).contains("| 이름 | 값 |");
         assertThat(documentText).contains("| --- | --- |");
+        assertThat(documentText).contains("![image](https://mydoc.test/image.png)");
 
         String draftText = toolText(mcp("tools/call", Map.of(
                 "name", "create_draft",
                 "arguments", Map.of(
                         "spaceSlug", "m6-space",
                         "title", "AI 초안",
-                        "markdown", "# 초안\n본문입니다.\n- 항목\n1. 순서\n```\n코드\n```\n| 열 | 값 |\n| --- | --- |\n| A | B |"
+                        "markdown", "# 초안\n본문입니다.\n- 항목\n1. 순서\n```\n코드\n```\n| 열 | 값 |\n| --- | --- |\n| A | B |\n> 인용\n![image](https://mydoc.test/draft.png)"
                 )
         ), ownerId));
         assertThat(draftText).contains("초안이 생성됐어요: http://mydoc.test/d/");
@@ -154,7 +156,7 @@ class M6AcceptanceTest {
         assertThat(jdbcTemplate.queryForList("SELECT DISTINCT source_type FROM block WHERE document_id = ?", String.class, draftId))
                 .containsExactly("AI_DRAFT");
         assertThat(jdbcTemplate.queryForList("SELECT type FROM block WHERE document_id = ? ORDER BY position", String.class, draftId))
-                .containsExactly("HEADING1", "PARAGRAPH", "BULLET_LIST", "ORDERED_LIST", "CODE", "TABLE");
+                .containsExactly("HEADING1", "PARAGRAPH", "BULLET_LIST", "ORDERED_LIST", "CODE", "TABLE", "QUOTE", "IMAGE");
 
         String invalidDraftText = toolText(mcp("tools/call", Map.of(
                 "name", "create_draft",
@@ -275,6 +277,8 @@ class M6AcceptanceTest {
                     Map.of("type", "codeBlock", "content", List.of(Map.of("type", "text", "text", text)));
             case "TABLE" ->
                     Map.of("type", "table", "rows", List.of(List.of("이름", "값"), List.of("계정", "IT")));
+            case "IMAGE" ->
+                    Map.of("type", "image", "attrs", Map.of("src", text));
             default ->
                     Map.of("type", "paragraph", "content", List.of(Map.of("type", "text", "text", text)));
         };
