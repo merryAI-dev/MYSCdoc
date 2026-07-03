@@ -167,6 +167,15 @@ class M3AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT cause FROM revision WHERE document_id = ?", String.class, documentId))
                 .isEqualTo("SNAPSHOT_COMMIT");
 
+        ResponseEntity<Map> missingInternalToken = restTemplate.exchange(
+                "/api/internal/documents/" + documentId + "/blocks",
+                HttpMethod.GET,
+                new HttpEntity<>(null),
+                Map.class
+        );
+        assertThat(missingInternalToken.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(missingInternalToken.getBody()).containsEntry("status", 401);
+
         Map<String, Object> snapshotWithoutEditorBody = new HashMap<>();
         snapshotWithoutEditorBody.put("documentId", documentId.toString());
         snapshotWithoutEditorBody.put("editorId", null);

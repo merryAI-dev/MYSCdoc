@@ -105,6 +105,15 @@ class M6AcceptanceTest {
 
     @Test
     void m6AcceptanceScenario() throws Exception {
+        ResponseEntity<Map> unauthenticatedMcp = restTemplate.exchange(
+                "/mcp",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("jsonrpc", "2.0", "id", 1, "method", "tools/list", "params", Map.of())),
+                Map.class
+        );
+        assertThat(unauthenticatedMcp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(unauthenticatedMcp.getBody()).containsEntry("status", 401);
+
         UUID documentId = createDocument("온보딩 가이드");
         putBlocks(documentId, List.of(
                 block("HEADING1", "계정 발급"),
