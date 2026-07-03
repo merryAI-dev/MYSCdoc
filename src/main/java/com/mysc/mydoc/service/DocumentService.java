@@ -115,7 +115,7 @@ public class DocumentService {
         blocks.saveAll(newBlocks);
         JsonNode snapshot = objectMapper.valueToTree(payloads);
         revisions.save(new Revision(docId, snapshot, editorId, cause));
-        if (document.getStatus() == DocStatus.DRAFT) {
+        if (document.getStatus() == DocStatus.DRAFT && cause != ChangeCause.SLACK_INGEST && cause != ChangeCause.AI_SUGGESTION) {
             document.activate();
         } else {
             document.rename(document.getTitle());

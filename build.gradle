@@ -9,6 +9,7 @@ version = '0.0.1-SNAPSHOT'
 
 ext['testcontainers.version'] = '2.0.5'
 ext['springAi.version'] = '1.0.9'
+ext['slackSdk.version'] = '1.49.0'
 
 java {
     toolchain {
@@ -31,6 +32,8 @@ dependencies {
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'org.hibernate.orm:hibernate-vector:6.5.3.Final'
     implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+    implementation "com.slack.api:bolt-socket-mode:${property('slackSdk.version')}"
+    implementation "com.slack.api:slack-api-client:${property('slackSdk.version')}"
     runtimeOnly 'org.postgresql:postgresql'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.testcontainers:testcontainers-postgresql'
