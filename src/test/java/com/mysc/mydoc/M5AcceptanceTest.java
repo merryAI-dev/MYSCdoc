@@ -158,6 +158,10 @@ class M5AcceptanceTest {
         correctionClient.responses.add(null);
         ResponseEntity<Map> nullCorrection = exchange("/api/documents/" + neverVerifiedDoc + "/corrections", HttpMethod.POST, null, memberId);
         assertThat(nullCorrection.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        correctionClient.responses.add("null");
+        ResponseEntity<Map> jsonNullCorrection = exchange("/api/documents/" + neverVerifiedDoc + "/corrections", HttpMethod.POST, null, memberId);
+        assertThat(jsonNullCorrection.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     private UUID createActiveDocument(String title) {
