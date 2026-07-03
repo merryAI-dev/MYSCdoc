@@ -64,16 +64,19 @@ public class SlackIngestService {
     @Transactional
     public void onReactionAdded(String channelId, String messageTs, String reactorUserId) {
         SlackGateway slackGateway = slack();
+        String replyThreadTs = messageTs;
         try {
             SlackThread thread = slackGateway.thread(channelId, messageTs);
-            ingestLogs.findByChannelIdAndThreadTs(channelId, thread.threadTs())
-                    .ifPresentOrElse(
-                            log -> safeReply(slackGateway, channelId, thread.threadTs(), documentUrl(log.getDocumentId())),
-                            () -> ingestThread(channelId, thread.threadTs(), thread.messages(), reactorUserId, thread.permalink())
-                    );
+            replyThreadTs = thread.threadTs();
+            var existingLog = ingestLogs.findByChannelIdAndThreadTs(channelId, thread.threadTs());
+            if (existingLog.isPresent()) {
+                safeReply(slackGateway, channelId, thread.threadTs(), documentUrl(existingLog.get().getDocumentId()));
+            } else {
+                ingestThread(channelId, thread.threadTs(), thread.messages(), reactorUserId, thread.permalink());
+            }
         } catch (RuntimeException exception) {
             log.warn("Slack thread ingest failed", exception);
-            safeReply(slackGateway, channelId, messageTs, "요약에 실패했어요. 잠시 후 다시 이모지를 달아주세요.");
+            safeReply(slackGateway, channelId, replyThreadTs, "요약에 실패했어요. 잠시 후 다시 이모지를 달아주세요.");
         }
     }
 

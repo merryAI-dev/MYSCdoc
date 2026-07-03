@@ -150,6 +150,15 @@ class M4AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '222.1'", Integer.class)).isZero();
         assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("요약에 실패했어요"));
 
+        slack.threads.put("C1:224.2", new SlackThread("224.1", "https://slack.test/archives/C1/p2244", List.of(new SlackMessage("U1", "보람", "reply reaction failure", "224.2"))));
+        summaryClient.responses.add("not json");
+        summaryClient.responses.add("still not json");
+        ingest.onReactionAdded("C1", "224.2", "U1");
+        assertThat(slack.replies).anySatisfy(reply -> {
+            assertThat(reply.threadTs()).isEqualTo("224.1");
+            assertThat(reply.text()).contains("요약에 실패했어요");
+        });
+
         slack.threads.put("C1:223.1", new SlackThread("223.1", "https://slack.test/archives/C1/p2233", List.of(new SlackMessage("U1", "보람", "형식 오류", "223.1"))));
         summaryClient.responses.add("""
                 {"title":"형식 오류 문서","sections":[{"heading":"결정 사항"}]}
