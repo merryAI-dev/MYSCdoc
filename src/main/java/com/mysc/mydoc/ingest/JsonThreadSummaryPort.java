@@ -5,6 +5,7 @@ import com.mysc.mydoc.common.ValidationException;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class JsonThreadSummaryPort implements ThreadSummaryPort {
@@ -48,9 +49,26 @@ public class JsonThreadSummaryPort implements ThreadSummaryPort {
             throw new ValidationException("summary response is not JSON");
         }
         try {
-            return objectMapper.readValue(raw.substring(start, end + 1), ThreadSummary.class);
+            ThreadSummary summary = objectMapper.readValue(raw.substring(start, end + 1), ThreadSummary.class);
+            validate(summary);
+            return summary;
         } catch (Exception exception) {
             throw new ValidationException("summary response is not JSON");
+        }
+    }
+
+    private void validate(ThreadSummary summary) {
+        if (summary == null || !StringUtils.hasText(summary.title()) || summary.sections() == null || summary.sections().isEmpty()) {
+            throw new ValidationException("summary response is not JSON");
+        }
+        for (ThreadSummary.Section section : summary.sections()) {
+            if (section == null
+                    || !StringUtils.hasText(section.heading())
+                    || section.paragraphs() == null
+                    || section.paragraphs().isEmpty()
+                    || section.paragraphs().stream().anyMatch(paragraph -> !StringUtils.hasText(paragraph))) {
+                throw new ValidationException("summary response is not JSON");
+            }
         }
     }
 

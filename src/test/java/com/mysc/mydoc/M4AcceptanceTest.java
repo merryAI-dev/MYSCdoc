@@ -150,6 +150,21 @@ class M4AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '222.1'", Integer.class)).isZero();
         assertThat(slack.replies).anySatisfy(reply -> assertThat(reply.text()).contains("요약에 실패했어요"));
 
+        slack.threads.put("C1:223.1", new SlackThread("223.1", "https://slack.test/archives/C1/p2233", List.of(new SlackMessage("U1", "보람", "형식 오류", "223.1"))));
+        summaryClient.responses.add("""
+                {"title":"형식 오류 문서","sections":[{"heading":"결정 사항"}]}
+                """);
+        summaryClient.responses.add("""
+                {"title":"형식 오류 문서","sections":null}
+                """);
+        ingest.onReactionAdded("C1", "223.1", "U1");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document WHERE title = '형식 오류 문서'", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM slack_ingest_log WHERE thread_ts = '223.1'", Integer.class)).isZero();
+        assertThat(slack.replies).anySatisfy(reply -> {
+            assertThat(reply.threadTs()).isEqualTo("223.1");
+            assertThat(reply.text()).contains("요약에 실패했어요");
+        });
+
         slack.failReplies = true;
         slack.threads.put("C1:444.1", new SlackThread("444.1", "https://slack.test/archives/C1/p4444", List.of(new SlackMessage("U1", "보람", "Slack reply failure", "444.1"))));
         summaryClient.responses.add("not json");
