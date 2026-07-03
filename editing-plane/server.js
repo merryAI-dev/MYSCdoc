@@ -9,7 +9,7 @@ import pg from 'pg'
 import * as Y from 'yjs'
 import { startCompaction } from './compaction.js'
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const PORT = Number(process.env.PORT || 8081)
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://mydoc:changeme@localhost:5432/mydoc'
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
@@ -255,9 +255,16 @@ async function handleRequest({ request, response }) {
     response.end()
     throw null
   }
-  const body = JSON.parse(await readBody(request))
-  assertDocumentName(body.documentId)
-  assertDocumentName(body.memberId)
+  let body
+  try {
+    body = JSON.parse(await readBody(request))
+    assertUuid(body.documentId, 'documentId')
+    assertUuid(body.memberId, 'memberId')
+  } catch {
+    response.writeHead(400)
+    response.end()
+    throw null
+  }
   kick(body.documentId, body.memberId)
   response.writeHead(204)
   response.end()
@@ -274,8 +281,12 @@ function readBody(request) {
 }
 
 function assertDocumentName(value) {
+  assertUuid(value, 'document name')
+}
+
+function assertUuid(value, name) {
   if (!UUID_PATTERN.test(value || '')) {
-    throw new Error('invalid document name')
+    throw new Error(`invalid ${name}`)
   }
 }
 
