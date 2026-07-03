@@ -16,8 +16,6 @@ spring:
       audio:
         speech: none
         transcription: none
-      chat: ${SPRING_AI_MODEL_CHAT:none}
-      embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
       image: none
       moderation: none
     openai:
