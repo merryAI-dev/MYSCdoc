@@ -82,7 +82,8 @@ public class SlackIngestService {
 
     @Transactional
     public UUID ingestThread(String channelId, String threadTs, List<SlackMessage> messages) {
-        return ingestThread(channelId, threadTs, messages, null, "");
+        SlackThread thread = slack().thread(channelId, threadTs);
+        return ingestThread(channelId, thread.threadTs(), messages, null, thread.permalink());
     }
 
     private UUID ingestThread(String channelId, String threadTs, List<SlackMessage> messages, String reactorUserId, String permalink) {

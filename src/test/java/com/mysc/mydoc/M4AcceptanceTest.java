@@ -222,6 +222,16 @@ class M4AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT email FROM member WHERE id = ?", String.class, lookupFailureOwner))
                 .isEqualTo("bot@mydoc.internal");
         slack.failUserEmail = false;
+
+        slack.threads.put("C1:777.1", new SlackThread("777.1", "https://slack.test/archives/C1/p7777", List.of(new SlackMessage("U1", "보람", "public ingest", "777.1"))));
+        summaryClient.responses.add("""
+                {"title":"public ingest 문서","sections":[{"heading":"결정 사항","paragraphs":["공개 함수도 permalink를 남겨요."]}]}
+                """);
+        UUID publicDocumentId = ingest.ingestThread("C1", "777.1", List.of(new SlackMessage("U1", "보람", "public ingest", "777.1")));
+        assertThat(jdbcTemplate.queryForObject("SELECT content::text FROM block WHERE document_id = ? ORDER BY position DESC LIMIT 1", String.class, publicDocumentId))
+                .contains("출처: https://slack.test/archives/C1/p7777");
+        assertThat(jdbcTemplate.queryForList("SELECT DISTINCT source_url FROM block WHERE document_id = ?", String.class, publicDocumentId))
+                .containsExactly("https://slack.test/archives/C1/p7777");
     }
 
     private HttpEntity<Object> entity(Object body, UUID memberId) {
