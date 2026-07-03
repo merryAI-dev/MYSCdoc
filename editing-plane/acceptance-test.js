@@ -12,6 +12,7 @@ const JAVA_BASE_URL = process.env.JAVA_BASE_URL || 'http://localhost:8080'
 const DOC_ID = required('DOC_ID')
 const MEMBER_ID = required('MEMBER_ID')
 const TOKEN = required('TOKEN')
+const INITIAL_TEXT = process.env.INITIAL_TEXT
 const schema = getSchema([StarterKit])
 
 const doc1 = new Y.Doc()
@@ -20,6 +21,9 @@ const provider1 = provider(doc1, TOKEN)
 const provider2 = provider(doc2, TOKEN)
 
 await Promise.all([waitSynced(provider1), waitSynced(provider2)])
+if (INITIAL_TEXT) {
+  await waitUntil(() => JSON.stringify(yDocToProsemirrorJSON(doc1, 'prosemirror')).includes(INITIAL_TEXT), 5000)
+}
 
 const edited = prosemirrorJSONToYDoc(schema, {
   type: 'doc',
