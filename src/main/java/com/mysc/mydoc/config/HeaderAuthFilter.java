@@ -52,7 +52,7 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
             }
             writeProblem(response, HttpStatus.UNAUTHORIZED, "Missing or invalid internal token", path);
             return;
-        } else if (path.startsWith("/api/")) {
+        } else if (path.startsWith("/api/") || path.equals("/mcp")) {
             if (!authenticateMember(request, response, path)) {
                 return;
             }

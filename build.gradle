@@ -10,6 +10,7 @@ version = '0.0.1-SNAPSHOT'
 ext['testcontainers.version'] = '2.0.5'
 ext['springAi.version'] = '1.0.9'
 ext['slackSdk.version'] = '1.49.0'
+ext['mcpSdk.version'] = '2.0.0'
 
 java {
     toolchain {
@@ -35,6 +36,8 @@ dependencies {
     implementation 'org.springframework.ai:spring-ai-starter-model-anthropic'
     implementation "com.slack.api:bolt-socket-mode:${property('slackSdk.version')}"
     implementation "com.slack.api:slack-api-client:${property('slackSdk.version')}"
+    implementation "io.modelcontextprotocol.sdk:mcp-core:${property('mcpSdk.version')}"
+    implementation "io.modelcontextprotocol.sdk:mcp-json-jackson2:${property('mcpSdk.version')}"
     runtimeOnly 'org.postgresql:postgresql'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.testcontainers:testcontainers-postgresql'
