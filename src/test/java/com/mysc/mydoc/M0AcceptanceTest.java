@@ -59,6 +59,14 @@ class M0AcceptanceTest {
     }
 
     @Test
+    void swaggerUi_isExposed() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/swagger-ui/index.html", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("Swagger UI");
+    }
+
+    @Test
     void flyway_createsV1Tables() {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
