@@ -22,6 +22,7 @@ import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.RevisionRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
+import com.mysc.mydoc.service.EditingPlaneClient;
 import java.net.URI;
 import java.util.List;
 import java.util.UUID;
@@ -44,17 +45,20 @@ public class DocumentController {
     private final BlockRepository blocks;
     private final RevisionRepository revisions;
     private final MemberRepository members;
+    private final EditingPlaneClient editingPlane;
 
     public DocumentController(
             DocumentService documents,
             BlockRepository blocks,
             RevisionRepository revisions,
-            MemberRepository members
+            MemberRepository members,
+            EditingPlaneClient editingPlane
     ) {
         this.documents = documents;
         this.blocks = blocks;
         this.revisions = revisions;
         this.members = members;
+        this.editingPlane = editingPlane;
     }
 
     @PostMapping("/api/documents")
@@ -109,6 +113,7 @@ public class DocumentController {
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
         documents.archive(id, memberId);
+        editingPlane.kick(id, memberId);
         return ResponseEntity.noContent().build();
     }
 
@@ -118,7 +123,9 @@ public class DocumentController {
             @RequestBody OwnerRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        UUID oldOwnerId = documents.get(id).getOwner().getId();
         documents.changeOwner(id, request.ownerId(), memberId);
+        editingPlane.kick(id, oldOwnerId);
         return toResponse(documents.get(id));
     }
 

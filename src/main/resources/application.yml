@@ -28,6 +28,8 @@ spring:
 
 mydoc:
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:}
+  collab-jwt-secret: ${COLLAB_JWT_SECRET:}
+  editing-plane-url: ${EDITING_PLANE_URL:http://localhost:8081}
 
 management:
   endpoints:

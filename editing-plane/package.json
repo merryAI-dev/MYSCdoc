@@ -1,0 +1,17 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@hocuspocus/extension-database": "^2.13.0",
+    "@hocuspocus/extension-redis": "^2.13.0",
+    "@hocuspocus/server": "^2.13.0",
+    "@tiptap/core": "^2.4.0",
+    "@tiptap/starter-kit": "^2.4.0",
+    "@tiptap/y-tiptap": "^2.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "pg": "^8.11.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "@hocuspocus/provider": "^2.15.3"
+  }
+}

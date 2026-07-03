@@ -54,4 +54,7 @@ public final class ApiDtos {
     public record RevisionDetail(UUID id, UUID documentId, JsonNode snapshot, UUID editorId, ChangeCause cause, Instant createdAt) {}
     public record SearchResponse(List<SearchHitResponse> hits) {}
     public record SearchHitResponse(UUID documentId, String title, String headingPath, String snippet, double score) {}
+    public record CollabTokenRequest(UUID documentId) {}
+    public record CollabTokenResponse(String token, int expiresInSeconds) {}
+    public record SnapshotRequest(UUID documentId, UUID editorId, List<BlockRequest> blocks) {}
 }

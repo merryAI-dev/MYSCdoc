@@ -40,7 +40,11 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (path.startsWith("/api/internal/")) {
+        if (path.equals("/api/internal/collab-tokens")) {
+            if (!authenticateMember(request, response, path)) {
+                return;
+            }
+        } else if (path.startsWith("/api/internal/")) {
             if (StringUtils.hasText(internalServiceToken)
                     && ("Bearer " + internalServiceToken).equals(request.getHeader("Authorization"))) {
                 filterChain.doFilter(request, response);
@@ -48,16 +52,22 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
             }
             writeProblem(response, HttpStatus.UNAUTHORIZED, "Missing or invalid internal token", path);
             return;
-        }
-        if (path.startsWith("/api/")) {
-            UUID memberId = parseUuid(request.getHeader("X-Member-Id"));
-            if (memberId == null || !memberExists(memberId)) {
-                writeProblem(response, HttpStatus.UNAUTHORIZED, "Missing or invalid X-Member-Id", path);
+        } else if (path.startsWith("/api/")) {
+            if (!authenticateMember(request, response, path)) {
                 return;
             }
-            request.setAttribute(MEMBER_ID_ATTRIBUTE, memberId);
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean authenticateMember(HttpServletRequest request, HttpServletResponse response, String path) throws IOException {
+        UUID memberId = parseUuid(request.getHeader("X-Member-Id"));
+        if (memberId == null || !memberExists(memberId)) {
+            writeProblem(response, HttpStatus.UNAUTHORIZED, "Missing or invalid X-Member-Id", path);
+            return false;
+        }
+        request.setAttribute(MEMBER_ID_ATTRIBUTE, memberId);
+        return true;
     }
 
     private UUID parseUuid(String value) {
