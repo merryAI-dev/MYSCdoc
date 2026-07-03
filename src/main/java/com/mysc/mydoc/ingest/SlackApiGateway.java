@@ -12,7 +12,7 @@ import org.springframework.util.StringUtils;
 
 @Component
 @ConditionalOnExpression("'${mydoc.slack.bot-token:}' != ''")
-public class SlackApiGateway implements SlackGateway {
+public class SlackApiGateway implements SlackGateway, SlackDmPort {
     private final MethodsClient slack;
 
     public SlackApiGateway(@Value("${mydoc.slack.bot-token}") String botToken) {
@@ -56,6 +56,18 @@ public class SlackApiGateway implements SlackGateway {
     public void reply(String channelId, String threadTs, String text) {
         try {
             var response = slack.chatPostMessage(request -> request.channel(channelId).threadTs(threadTs).text(text));
+            if (!response.isOk()) {
+                throw new IllegalStateException("chat.postMessage failed: " + response.getError());
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    @Override
+    public void sendDm(String slackUserId, String text) {
+        try {
+            var response = slack.chatPostMessage(request -> request.channel(slackUserId).text(text));
             if (!response.isOk()) {
                 throw new IllegalStateException("chat.postMessage failed: " + response.getError());
             }

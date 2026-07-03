@@ -16,7 +16,7 @@ spring:
       audio:
         speech: none
         transcription: none
-      chat: none
+      chat: ${SPRING_AI_MODEL_CHAT:none}
       embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
       image: none
       moderation: none
@@ -25,6 +25,11 @@ spring:
       embedding:
         options:
           model: text-embedding-3-small
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: claude-sonnet-5
 
 mydoc:
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:}

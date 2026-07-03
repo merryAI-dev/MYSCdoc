@@ -57,4 +57,6 @@ public final class ApiDtos {
     public record CollabTokenRequest(UUID documentId) {}
     public record CollabTokenResponse(String token, int expiresInSeconds) {}
     public record SnapshotRequest(UUID documentId, UUID editorId, List<BlockRequest> blocks) {}
+    public record CorrectionResponse(int score, List<CorrectionFindingResponse> findings) {}
+    public record CorrectionFindingResponse(String category, int blockPosition, String original, String suggestion, String reason) {}
 }

@@ -2,6 +2,8 @@ package com.mysc.mydoc.api;
 
 import static com.mysc.mydoc.api.dto.ApiDtos.BlockResponse;
 import static com.mysc.mydoc.api.dto.ApiDtos.BlocksRequest;
+import static com.mysc.mydoc.api.dto.ApiDtos.CorrectionFindingResponse;
+import static com.mysc.mydoc.api.dto.ApiDtos.CorrectionResponse;
 import static com.mysc.mydoc.api.dto.ApiDtos.DocumentCreateRequest;
 import static com.mysc.mydoc.api.dto.ApiDtos.DocumentResponse;
 import static com.mysc.mydoc.api.dto.ApiDtos.OwnerRequest;
@@ -21,6 +23,8 @@ import com.mysc.mydoc.repository.BlockRepository;
 import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.RevisionRepository;
 import com.mysc.mydoc.service.BlockPayload;
+import com.mysc.mydoc.service.CorrectionFinding;
+import com.mysc.mydoc.service.CorrectionService;
 import com.mysc.mydoc.service.DocumentService;
 import com.mysc.mydoc.service.EditingPlaneClient;
 import java.net.URI;
@@ -46,19 +50,22 @@ public class DocumentController {
     private final RevisionRepository revisions;
     private final MemberRepository members;
     private final EditingPlaneClient editingPlane;
+    private final CorrectionService corrections;
 
     public DocumentController(
             DocumentService documents,
             BlockRepository blocks,
             RevisionRepository revisions,
             MemberRepository members,
-            EditingPlaneClient editingPlane
+            EditingPlaneClient editingPlane,
+            CorrectionService corrections
     ) {
         this.documents = documents;
         this.blocks = blocks;
         this.revisions = revisions;
         this.members = members;
         this.editingPlane = editingPlane;
+        this.corrections = corrections;
     }
 
     @PostMapping("/api/documents")
@@ -78,6 +85,11 @@ public class DocumentController {
     @GetMapping("/api/documents")
     Page<DocumentResponse> list(@RequestParam UUID spaceId, Pageable pageable) {
         return documents.list(spaceId, pageable).map(this::toResponse);
+    }
+
+    @GetMapping("/api/documents/stale")
+    Page<DocumentResponse> stale(@RequestParam UUID spaceId, Pageable pageable) {
+        return documents.listStale(spaceId, pageable).map(this::toResponse);
     }
 
     @PutMapping("/api/documents/{id}/title")
@@ -149,6 +161,12 @@ public class DocumentController {
         );
     }
 
+    @PostMapping("/api/documents/{id}/corrections")
+    CorrectionResponse corrections(@PathVariable UUID id) {
+        var result = corrections.review(id);
+        return new CorrectionResponse(result.score(), result.findings().stream().map(DocumentController::toCorrectionFinding).toList());
+    }
+
     private DocumentResponse toResponse(Document document) {
         return new DocumentResponse(
                 document.getId(),
@@ -179,6 +197,16 @@ public class DocumentController {
                 block.getProvenance().getSourceUrl(),
                 block.getProvenance().getSourceRef(),
                 block.getUpdatedAt()
+        );
+    }
+
+    private static CorrectionFindingResponse toCorrectionFinding(CorrectionFinding finding) {
+        return new CorrectionFindingResponse(
+                finding.category(),
+                finding.blockPosition(),
+                finding.original(),
+                finding.suggestion(),
+                finding.reason()
         );
     }
 }

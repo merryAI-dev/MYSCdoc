@@ -79,6 +79,11 @@ public class DocumentService {
         return documents.findBySpaceIdAndStatusNot(spaceId, DocStatus.ARCHIVED, p);
     }
 
+    @Transactional(readOnly = true)
+    public Page<Document> listStale(UUID spaceId, Pageable p) {
+        return documents.findByStatusAndSpaceId(DocStatus.STALE, spaceId, p);
+    }
+
     @Transactional
     public Document rename(UUID docId, String title) {
         if (!StringUtils.hasText(title)) {
