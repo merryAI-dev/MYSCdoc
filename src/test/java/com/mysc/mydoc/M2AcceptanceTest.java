@@ -109,6 +109,17 @@ class M2AcceptanceTest {
                 """, String.class, accountDoc);
         assertThat(headingPaths).containsExactlyInAnyOrder("온보딩 가이드 > 계정 발급", "온보딩 가이드 > 휴가 신청");
 
+        UUID nestedDoc = createDocument("계층 문서");
+        putBlocks(nestedDoc, List.of(
+                block("HEADING1", "상위"),
+                block("HEADING2", "중위"),
+                block("HEADING3", "하위"),
+                block("PARAGRAPH", "nested account")
+        ));
+        waitForChunkCount(nestedDoc, 1);
+        assertThat(jdbcTemplate.queryForObject("SELECT heading_path FROM chunk WHERE document_id = ?", String.class, nestedDoc))
+                .isEqualTo("계층 문서 > 상위 > 중위");
+
         UUID longDoc = createDocument("긴 문서");
         putBlocks(longDoc, List.of(block("HEADING1", "긴 섹션"), block("PARAGRAPH", "가".repeat(3000))));
         waitForChunkCount(longDoc, 2);
@@ -188,12 +199,20 @@ class M2AcceptanceTest {
         Map<String, Object> block = new LinkedHashMap<>();
         block.put("type", type);
         block.put("content", type.startsWith("HEADING")
-                ? Map.of("type", "heading", "attrs", Map.of("level", 1), "content", List.of(Map.of("type", "text", "text", text)))
+                ? Map.of("type", "heading", "attrs", Map.of("level", headingLevel(type)), "content", List.of(Map.of("type", "text", "text", text)))
                 : Map.of("type", "paragraph", "content", List.of(Map.of("type", "text", "text", text))));
         block.put("sourceType", "MANUAL");
         block.put("sourceUrl", null);
         block.put("sourceRef", null);
         return block;
+    }
+
+    private int headingLevel(String type) {
+        return switch (type) {
+            case "HEADING2" -> 2;
+            case "HEADING3" -> 3;
+            default -> 1;
+        };
     }
 
     private String vectorLiteral(float first, float second) {

@@ -75,17 +75,16 @@ public class ChunkingService {
             String text = text(block.getContent());
             if (isHeading(block.getType())) {
                 addSection(sections, currentPath, current);
-                int level = switch (block.getType()) {
-                    case HEADING1 -> 1;
-                    case HEADING2 -> 2;
-                    case HEADING3 -> 3;
-                    default -> 1;
-                };
-                while (headings.size() >= level) {
-                    headings.remove(headings.size() - 1);
+                if (block.getType() == BlockType.HEADING1) {
+                    headings.clear();
+                    headings.add(text);
+                } else if (block.getType() == BlockType.HEADING2) {
+                    while (headings.size() > 1) {
+                        headings.remove(headings.size() - 1);
+                    }
+                    headings.add(text);
                 }
-                headings.add(text);
-                currentPath = document.getTitle() + " > " + String.join(" > ", headings);
+                currentPath = headings.isEmpty() ? document.getTitle() : document.getTitle() + " > " + String.join(" > ", headings);
             } else if (StringUtils.hasText(text)) {
                 if (!current.isEmpty()) {
                     current.append('\n');
