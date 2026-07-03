@@ -1,11 +1,12 @@
 import * as Y from 'yjs'
 
-const TEN_MINUTES_MS = 10 * 60 * 1000
+const COMPACTION_INTERVAL_MS = 10 * 60 * 1000 // 05-editing-plane.md
+const COMPACTION_UPDATE_THRESHOLD = 500 // 05-editing-plane.md
 
 export function startCompaction(pool) {
   setInterval(() => {
     compactOnce(pool).catch(error => console.error('compaction failed', error))
-  }, TEN_MINUTES_MS)
+  }, COMPACTION_INTERVAL_MS)
 }
 
 export async function compactOnce(pool) {
@@ -13,8 +14,8 @@ export async function compactOnce(pool) {
     SELECT doc_id, MAX(id) AS max_id
     FROM yjs_update
     GROUP BY doc_id
-    HAVING COUNT(*) >= 500
-  `)
+    HAVING COUNT(*) >= $1
+  `, [COMPACTION_UPDATE_THRESHOLD])
 
   for (const row of documents.rows) {
     await compactDocument(pool, row.doc_id, Number(row.max_id))
