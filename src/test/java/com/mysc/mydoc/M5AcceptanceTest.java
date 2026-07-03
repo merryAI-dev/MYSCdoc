@@ -139,7 +139,7 @@ class M5AcceptanceTest {
         assertThat(content).extracting(item -> item.get("id")).contains(neverVerifiedDoc.toString());
 
         correctionClient.responses.add("""
-                {"score":123,"findings":[null,{"blockPosition":1,"original":"x","suggestion":"y","reason":"분류 누락"},{"category":"TERMINOLOGY","blockPosition":1,"original":"단일 진실 공급원","suggestion":"믿고 참고할 기준","reason":"직역투를 줄이면 더 자연스러워요."},{"category":"TYPO","blockPosition":1,"original":"x","suggestion":"y","reason":"범위 밖"},{"category":"SPELLING","blockPosition":99,"original":"x","suggestion":"y","reason":"범위 밖"}]}
+                {"score":123,"findings":[null,{"blockPosition":1,"original":"x","suggestion":"y","reason":"분류 누락"},{"category":"SPELLING","blockPosition":1,"suggestion":"y","reason":"원문 누락"},{"category":"STRUCTURE","blockPosition":1,"original":"x","suggestion":" ","reason":"수정안 공백"},{"category":"TERMINOLOGY","blockPosition":1,"original":"단일 진실 공급원","suggestion":"믿고 참고할 기준","reason":"직역투를 줄이면 더 자연스러워요."},{"category":"TYPO","blockPosition":1,"original":"x","suggestion":"y","reason":"범위 밖"},{"category":"SPELLING","blockPosition":99,"original":"x","suggestion":"y","reason":"범위 밖"}]}
                 """);
         ResponseEntity<Map> corrections = exchange("/api/documents/" + neverVerifiedDoc + "/corrections", HttpMethod.POST, null, memberId);
         assertThat(corrections.getStatusCode()).isEqualTo(HttpStatus.OK);

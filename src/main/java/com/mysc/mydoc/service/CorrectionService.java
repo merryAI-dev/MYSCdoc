@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 public class CorrectionService {
@@ -68,7 +69,10 @@ public class CorrectionService {
         return finding != null
                 && finding.category() != null
                 && CATEGORIES.contains(finding.category())
-                && validPositions.contains(finding.blockPosition());
+                && validPositions.contains(finding.blockPosition())
+                && StringUtils.hasText(finding.original())
+                && StringUtils.hasText(finding.suggestion())
+                && StringUtils.hasText(finding.reason());
     }
 
     private CorrectionResult parse(String raw) {
