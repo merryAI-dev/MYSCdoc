@@ -242,6 +242,26 @@ class M3AcceptanceTest {
             assertThat(body).contains(memberId.toString());
         });
 
+        UUID newOwnerId = id(exchange(
+                "/api/members",
+                HttpMethod.POST,
+                Map.of("email", "new-owner-m3@mysc.co.kr", "displayName", "New Owner M3", "role", "MEMBER"),
+                memberEntity(Map.of("email", "new-owner-m3@mysc.co.kr", "displayName", "New Owner M3", "role", "MEMBER"), adminId)
+        ));
+        UUID ownerChangedDocumentId = createDocument("owner 변경 문서");
+        kickBodies.clear();
+        ResponseEntity<Map> ownerChanged = restTemplate.exchange(
+                "/api/documents/" + ownerChangedDocumentId + "/owner",
+                HttpMethod.PUT,
+                memberEntity(Map.of("ownerId", newOwnerId.toString()), memberId),
+                Map.class
+        );
+        assertThat(ownerChanged.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(kickBodies).anySatisfy(body -> {
+            assertThat(body).contains(ownerChangedDocumentId.toString());
+            assertThat(body).contains(memberId.toString());
+        });
+
         ResponseEntity<Void> archive = restTemplate.exchange(
                 "/api/documents/" + documentId + "/archive",
                 HttpMethod.POST,
