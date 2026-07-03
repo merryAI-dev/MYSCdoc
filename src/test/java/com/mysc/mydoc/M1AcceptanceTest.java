@@ -96,6 +96,22 @@ class M1AcceptanceTest {
         assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(me.getBody()).containsEntry("email", "member@mysc.co.kr");
 
+        ResponseEntity<Map> forbiddenSpaceCreate = exchange(
+                "/api/spaces",
+                HttpMethod.POST,
+                Map.of("slug", "member-space", "name", "Member Space"),
+                memberId
+        );
+        assertThat(forbiddenSpaceCreate.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        ResponseEntity<Map> forbiddenMemberCreate = exchange(
+                "/api/members",
+                HttpMethod.POST,
+                Map.of("email", "forbidden@mysc.co.kr", "displayName", "Forbidden", "role", "MEMBER"),
+                memberId
+        );
+        assertThat(forbiddenMemberCreate.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
         ResponseEntity<Map> document = exchange(
                 "/api/documents",
                 HttpMethod.POST,
@@ -117,6 +133,23 @@ class M1AcceptanceTest {
         );
         assertThat(nullSpaceDocument.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(nullSpaceDocument.getBody()).containsEntry("status", 400);
+
+        UUID emptyDocumentId = id(exchange(
+                "/api/documents",
+                HttpMethod.POST,
+                Map.of("spaceId", spaceId.toString(), "title", "빈 문서"),
+                memberId
+        ));
+        ResponseEntity<Void> emptyBlocks = exchangeVoid(
+                "/api/documents/" + emptyDocumentId + "/blocks",
+                HttpMethod.PUT,
+                Map.of("blocks", List.of()),
+                memberId
+        );
+        assertThat(emptyBlocks.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        ResponseEntity<Map> emptyDocument = exchange("/api/documents/" + emptyDocumentId, HttpMethod.GET, null, memberId);
+        assertThat(emptyDocument.getBody()).containsEntry("status", "ACTIVE");
+        assertThat((List<Map<String, Object>>) emptyDocument.getBody().get("blocks")).isEmpty();
 
         ResponseEntity<Map> renamed = exchange(
                 "/api/documents/" + documentId + "/title",
