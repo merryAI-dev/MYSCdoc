@@ -68,8 +68,14 @@ class M2AcceptanceTest {
                 @Override
                 public float[] embed(String text) {
                     float[] vector = new float[1536];
-                    vector[0] = text.toLowerCase().contains("account") ? 1.0f : 0.1f;
-                    vector[1] = text.toLowerCase().contains("vacation") ? 1.0f : 0.1f;
+                    String lower = text.toLowerCase();
+                    vector[0] = lower.contains("account") ? 1.0f : 0.1f;
+                    vector[1] = lower.contains("vacation") ? 1.0f : 0.1f;
+                    for (String token : lower.split("[^a-z0-9가-힣]+")) {
+                        if (!token.isBlank()) {
+                            vector[Math.floorMod(token.hashCode(), vector.length - 2) + 2] += 0.000001f;
+                        }
+                    }
                     return vector;
                 }
 
