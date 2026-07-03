@@ -146,6 +146,13 @@ class M6AcceptanceTest {
         assertThat(searchText).contains("URL: http://mydoc.test/d/" + documentId);
         assertThat(searchText).contains("⚠️ 이 문서는 오래됐을 수 있어요 (STALE)");
 
+        Map<String, Object> invalidSearchLimit = mcp("tools/call", Map.of(
+                "name", "search_documents",
+                "arguments", Map.of("query", "account", "limit", "many")
+        ), ownerId);
+        assertThat((Map<String, Object>) invalidSearchLimit.get("result")).containsEntry("isError", true);
+        assertThat(toolText(invalidSearchLimit)).contains("limit");
+
         String documentText = toolText(mcp("tools/call", Map.of("name", "get_document", "arguments", Map.of("documentId", documentId.toString())), ownerId));
         assertThat(documentText).contains("title: 온보딩 가이드");
         assertThat(documentText).contains("# 계정 발급");
