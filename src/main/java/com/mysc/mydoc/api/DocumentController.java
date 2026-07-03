@@ -135,8 +135,9 @@ public class DocumentController {
             @PathVariable UUID id,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
+        UUID ownerId = documents.get(id).getOwner().getId();
         documents.archive(id, memberId);
-        editingPlane.kick(id, memberId);
+        editingPlane.kick(id, ownerId);
         return ResponseEntity.noContent().build();
     }
 

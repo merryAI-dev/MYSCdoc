@@ -209,6 +209,20 @@ class M3AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM block WHERE document_id = ?", Integer.class, documentId))
                 .isEqualTo(1);
 
+        UUID adminArchivedDocumentId = createDocument("관리자 보관 문서");
+        kickBodies.clear();
+        ResponseEntity<Void> adminArchive = restTemplate.exchange(
+                "/api/documents/" + adminArchivedDocumentId + "/archive",
+                HttpMethod.POST,
+                memberEntity(null, adminId),
+                Void.class
+        );
+        assertThat(adminArchive.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(kickBodies).anySatisfy(body -> {
+            assertThat(body).contains(adminArchivedDocumentId.toString());
+            assertThat(body).contains(memberId.toString());
+        });
+
         ResponseEntity<Void> archive = restTemplate.exchange(
                 "/api/documents/" + documentId + "/archive",
                 HttpMethod.POST,
