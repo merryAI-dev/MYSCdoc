@@ -58,10 +58,17 @@ public class CorrectionService {
         return new CorrectionResult(
                 Math.max(0, Math.min(100, result.score())),
                 findings.stream()
-                        .filter(finding -> CATEGORIES.contains(finding.category()) && validPositions.contains(finding.blockPosition()))
+                        .filter(finding -> validFinding(finding, validPositions))
                         .limit(10)
                         .toList()
         );
+    }
+
+    private boolean validFinding(CorrectionFinding finding, Set<Integer> validPositions) {
+        return finding != null
+                && finding.category() != null
+                && CATEGORIES.contains(finding.category())
+                && validPositions.contains(finding.blockPosition());
     }
 
     private CorrectionResult parse(String raw) {
