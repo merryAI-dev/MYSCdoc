@@ -205,7 +205,7 @@ class M6AcceptanceTest {
 
         UUID missing = UUID.randomUUID();
         String missingText = toolText(mcp("tools/call", Map.of("name", "get_document", "arguments", Map.of("documentId", missing.toString())), ownerId));
-        assertThat(missingText).contains("문서를 찾을 수 없어요");
+        assertThat(missingText).isEqualTo("문서를 찾을 수 없어요: " + missing);
     }
 
     private UUID createDocument(String title) {

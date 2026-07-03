@@ -120,7 +120,7 @@ public class McpToolService {
                 default -> "알 수 없는 도구예요: " + request.name();
             };
         } catch (NotFoundException exception) {
-            value = "문서를 찾을 수 없어요: " + exception.getMessage();
+            value = "문서를 찾을 수 없어요: " + notFoundTarget(exception.getMessage());
         } catch (ForbiddenException exception) {
             value = "owner만 검증할 수 있어요";
         } catch (ValidationException exception) {
@@ -144,6 +144,14 @@ public class McpToolService {
             return UUID.fromString(text);
         }
         throw new IllegalStateException("MCP member context is missing");
+    }
+
+    private String notFoundTarget(String message) {
+        if (message == null) {
+            return "";
+        }
+        int index = message.lastIndexOf(": ");
+        return index >= 0 ? message.substring(index + 2) : message;
     }
 
     private UUID documentId(Map<String, Object> arguments) {
