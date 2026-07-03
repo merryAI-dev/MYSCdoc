@@ -57,6 +57,9 @@ public class CorrectionService {
         Document document = documents.get(documentId);
         List<Block> orderedBlocks = blocks.findByDocumentIdOrderByPosition(documentId);
         CorrectionResult result = parse(client.review(SYSTEM_PROMPT, userPrompt(document, orderedBlocks)));
+        if (result.score() == null) {
+            throw new ValidationException("correction response is not JSON");
+        }
         Set<Integer> validPositions = orderedBlocks.stream().map(Block::getPosition).collect(Collectors.toSet());
         List<CorrectionFinding> findings = result.findings() == null ? List.of() : result.findings();
         return new CorrectionResult(
