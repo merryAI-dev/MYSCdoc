@@ -50,7 +50,11 @@ public class StalenessJob {
             log.warn("Skipping stale document DM because Slack DM port is not configured");
             return;
         }
-        dm.sendDm(slackUserId, message(document));
+        try {
+            dm.sendDm(slackUserId, message(document));
+        } catch (RuntimeException exception) {
+            log.warn("Stale document DM failed for document {}", document.getId(), exception);
+        }
     }
 
     private String message(Document document) {

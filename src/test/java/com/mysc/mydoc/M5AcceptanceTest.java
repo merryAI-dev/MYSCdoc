@@ -1,6 +1,7 @@
 package com.mysc.mydoc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.mysc.mydoc.ai.CorrectionClient;
 import com.mysc.mydoc.ingest.SlackDmPort;
@@ -125,6 +126,13 @@ class M5AcceptanceTest {
         stalenessJob.run();
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, neverVerifiedDoc)).isEqualTo("STALE");
 
+        UUID dmFailureDoc = createActiveDocument("DM 실패 문서");
+        jdbcTemplate.update("UPDATE document SET verified_at = now() - interval '100 days' WHERE id = ?", dmFailureDoc);
+        slackDm.fail = true;
+        assertThatCode(() -> stalenessJob.run()).doesNotThrowAnyException();
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, dmFailureDoc)).isEqualTo("STALE");
+        slackDm.fail = false;
+
         ResponseEntity<Map> stale = exchange("/api/documents/stale?spaceId=" + spaceId, HttpMethod.GET, null, memberId);
         assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.OK);
         List<Map<String, Object>> content = (List<Map<String, Object>>) stale.getBody().get("content");
@@ -181,9 +189,13 @@ class M5AcceptanceTest {
 
     static class FakeSlackDm implements SlackDmPort {
         final List<String> messages = new ArrayList<>();
+        boolean fail;
 
         @Override
         public void sendDm(String slackUserId, String text) {
+            if (fail) {
+                throw new IllegalStateException("dm failed");
+            }
             messages.add(text);
         }
     }
