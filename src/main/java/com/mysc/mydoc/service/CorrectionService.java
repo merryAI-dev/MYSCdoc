@@ -69,6 +69,7 @@ public class CorrectionService {
         return finding != null
                 && finding.category() != null
                 && CATEGORIES.contains(finding.category())
+                && finding.blockPosition() != null
                 && validPositions.contains(finding.blockPosition())
                 && StringUtils.hasText(finding.original())
                 && StringUtils.hasText(finding.suggestion())
