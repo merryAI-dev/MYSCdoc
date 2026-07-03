@@ -3,13 +3,20 @@ package com.mysc.mydoc;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mysc.mydoc.ai.EmbeddingPort;
+import com.mysc.mydoc.repository.BlockRepository;
+import com.mysc.mydoc.repository.ChunkRepository;
+import com.mysc.mydoc.service.ChunkingService;
+import com.mysc.mydoc.service.DocumentService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +31,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -78,20 +87,34 @@ class M2AcceptanceTest {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    DocumentService documentService;
+
+    @Autowired
+    BlockRepository blockRepository;
+
+    @Autowired
+    ChunkRepository chunkRepository;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
+
     UUID adminId;
     UUID memberId;
     UUID spaceId;
+    String testSuffix;
 
     @BeforeEach
     void setup() {
+        testSuffix = UUID.randomUUID().toString();
         adminId = UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO member (id, email, display_name, role, created_at)
                 VALUES (?, ?, ?, ?, ?)
-                """, adminId, "admin@mysc.co.kr", "Admin", "ADMIN", Timestamp.from(Instant.now()));
+                """, adminId, "admin-" + testSuffix + "@mysc.co.kr", "Admin", "ADMIN", Timestamp.from(Instant.now()));
 
-        spaceId = id(exchange("/api/spaces", HttpMethod.POST, Map.of("slug", "axr-team", "name", "AXR팀"), adminId));
-        memberId = id(exchange("/api/members", HttpMethod.POST, Map.of("email", "member@mysc.co.kr", "displayName", "Member", "role", "MEMBER"), adminId));
+        spaceId = id(exchange("/api/spaces", HttpMethod.POST, Map.of("slug", "axr-team-" + testSuffix, "name", "AXR팀"), adminId));
+        memberId = id(exchange("/api/members", HttpMethod.POST, Map.of("email", "member-" + testSuffix + "@mysc.co.kr", "displayName", "Member", "role", "MEMBER"), adminId));
     }
 
     @Test
@@ -159,7 +182,7 @@ class M2AcceptanceTest {
         );
         assertThat(blank.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
-        UUID otherSpaceId = id(exchange("/api/spaces", HttpMethod.POST, Map.of("slug", "support-team", "name", "지원팀"), adminId));
+        UUID otherSpaceId = id(exchange("/api/spaces", HttpMethod.POST, Map.of("slug", "support-team-" + testSuffix, "name", "지원팀"), adminId));
         UUID otherSpaceDoc = createDocument(otherSpaceId, "지원팀 계정 문서");
         putBlocks(otherSpaceDoc, List.of(block("HEADING1", "계정 처리"), block("PARAGRAPH", "account routing은 지원팀에서 확인하세요.")));
         waitForChunkCount(otherSpaceDoc, 1);
@@ -186,6 +209,20 @@ class M2AcceptanceTest {
         assertThat(otherSpaceHits).extracting(hit -> hit.get("documentId"))
                 .contains(otherSpaceDoc.toString())
                 .doesNotContain(accountDoc.toString(), nestedDoc.toString());
+    }
+
+    @Test
+    void rechunk_withoutEmbeddingPort_keepsExistingChunks() throws Exception {
+        UUID documentId = createDocument("임베딩 보존 문서");
+        putBlocks(documentId, List.of(block("HEADING1", "보존"), block("PARAGRAPH", "preserved text")));
+        waitForChunkCount(documentId, 1);
+
+        ChunkingService withoutEmbedding = new ChunkingService(documentService, blockRepository, chunkRepository, noEmbeddings());
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> withoutEmbedding.rechunk(documentId));
+
+        waitForChunkCount(documentId, 1);
+        assertThat(jdbcTemplate.queryForObject("SELECT text FROM chunk WHERE document_id = ?", String.class, documentId))
+                .isEqualTo("preserved text");
     }
 
     private UUID createDocument(String title) {
@@ -273,5 +310,34 @@ class M2AcceptanceTest {
             values.add("0.0");
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private ObjectProvider<EmbeddingPort> noEmbeddings() {
+        return new ObjectProvider<>() {
+            @Override
+            public EmbeddingPort getObject(Object... args) {
+                throw new NoSuchBeanDefinitionException(EmbeddingPort.class);
+            }
+
+            @Override
+            public EmbeddingPort getIfAvailable() {
+                return null;
+            }
+
+            @Override
+            public EmbeddingPort getIfUnique() {
+                return null;
+            }
+
+            @Override
+            public EmbeddingPort getObject() {
+                throw new NoSuchBeanDefinitionException(EmbeddingPort.class);
+            }
+
+            @Override
+            public Iterator<EmbeddingPort> iterator() {
+                return List.<EmbeddingPort>of().iterator();
+            }
+        };
     }
 }

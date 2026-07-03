@@ -39,12 +39,6 @@ public class ChunkingService {
 
     @Transactional
     public void rechunk(UUID docId) {
-        EmbeddingPort embeddingPort = embeddings.getIfAvailable();
-        chunks.deleteByDocumentId(docId);
-        if (embeddingPort == null) {
-            return;
-        }
-
         Document document = documents.get(docId);
         List<Section> sections = sections(document, blocks.findByDocumentIdOrderByPosition(docId));
         List<Section> pieces = new ArrayList<>();
@@ -54,6 +48,12 @@ public class ChunkingService {
             }
         }
         if (pieces.isEmpty()) {
+            chunks.deleteByDocumentId(docId);
+            return;
+        }
+
+        EmbeddingPort embeddingPort = embeddings.getIfAvailable();
+        if (embeddingPort == null) {
             return;
         }
 
@@ -62,6 +62,7 @@ public class ChunkingService {
         for (int i = 0; i < pieces.size(); i++) {
             saved.add(new Chunk(docId, pieces.get(i).headingPath(), pieces.get(i).text(), vectors.get(i)));
         }
+        chunks.deleteByDocumentId(docId);
         chunks.saveAll(saved);
     }
 
