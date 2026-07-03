@@ -131,6 +131,14 @@ class M5AcceptanceTest {
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, dmFailureDoc)).isEqualTo("STALE");
         slackDm.fail = false;
 
+        UUID noSlackMemberId = id(exchange("/api/members", HttpMethod.POST, Map.of("email", "no-slack-m5@mysc.co.kr", "displayName", "No Slack M5", "role", "MEMBER"), adminId));
+        UUID noSlackDoc = createActiveDocument("Slack ID 없는 문서", noSlackMemberId);
+        jdbcTemplate.update("UPDATE document SET verified_at = now() - interval '100 days' WHERE id = ?", noSlackDoc);
+        int dmCountBeforeNoSlack = slackDm.messages.size();
+        stalenessJob.run();
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, noSlackDoc)).isEqualTo("STALE");
+        assertThat(slackDm.messages).hasSize(dmCountBeforeNoSlack);
+
         ResponseEntity<Map> stale = exchange("/api/documents/stale?spaceId=" + spaceId, HttpMethod.GET, null, memberId);
         assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.OK);
         List<Map<String, Object>> content = (List<Map<String, Object>>) stale.getBody().get("content");
@@ -153,11 +161,15 @@ class M5AcceptanceTest {
     }
 
     private UUID createActiveDocument(String title) {
-        UUID documentId = id(exchange("/api/documents", HttpMethod.POST, Map.of("spaceId", spaceId.toString(), "title", title), memberId));
+        return createActiveDocument(title, memberId);
+    }
+
+    private UUID createActiveDocument(String title, UUID ownerId) {
+        UUID documentId = id(exchange("/api/documents", HttpMethod.POST, Map.of("spaceId", spaceId.toString(), "title", title), ownerId));
         ResponseEntity<Void> response = restTemplate.exchange(
                 "/api/documents/" + documentId + "/blocks",
                 HttpMethod.PUT,
-                entity(Map.of("blocks", List.of(block("HEADING1", "제목"), block("PARAGRAPH", "단일 진실 공급원 역할을 해요."))), memberId),
+                entity(Map.of("blocks", List.of(block("HEADING1", "제목"), block("PARAGRAPH", "단일 진실 공급원 역할을 해요."))), ownerId),
                 Void.class
         );
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
