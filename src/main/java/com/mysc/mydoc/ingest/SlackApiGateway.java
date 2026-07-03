@@ -16,13 +16,18 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
     private final MethodsClient slack;
 
     public SlackApiGateway(@Value("${mydoc.slack.bot-token}") String botToken) {
-        this.slack = Slack.getInstance().methods(botToken);
+        this(Slack.getInstance().methods(botToken));
+    }
+
+    SlackApiGateway(MethodsClient slack) {
+        this.slack = slack;
     }
 
     @Override
     public SlackThread thread(String channelId, String messageTs) {
         try {
-            var replies = slack.conversationsReplies(request -> request.channel(channelId).ts(messageTs));
+            String threadTs = threadTs(channelId, messageTs);
+            var replies = slack.conversationsReplies(request -> request.channel(channelId).ts(threadTs));
             if (!replies.isOk()) {
                 throw new IllegalStateException("conversations.replies failed: " + replies.getError());
             }
@@ -30,8 +35,6 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
             if (messages == null || messages.isEmpty()) {
                 throw new IllegalStateException("Slack thread is empty");
             }
-            Message first = messages.get(0);
-            String threadTs = StringUtils.hasText(first.getThreadTs()) ? first.getThreadTs() : first.getTs();
             String permalink = permalink(channelId, threadTs);
             return new SlackThread(threadTs, permalink, messages.stream().map(this::toSlackMessage).toList());
         } catch (Exception exception) {
@@ -74,6 +77,25 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    private String threadTs(String channelId, String messageTs) throws Exception {
+        var response = slack.conversationsHistory(request -> request
+                .channel(channelId)
+                .oldest(messageTs)
+                .latest(messageTs)
+                .inclusive(true)
+                .limit(1)
+        );
+        if (!response.isOk()) {
+            throw new IllegalStateException("conversations.history failed: " + response.getError());
+        }
+        List<Message> messages = response.getMessages();
+        if (messages == null || messages.isEmpty()) {
+            throw new IllegalStateException("Slack message is empty");
+        }
+        Message message = messages.get(0);
+        return StringUtils.hasText(message.getThreadTs()) ? message.getThreadTs() : message.getTs();
     }
 
     private String permalink(String channelId, String threadTs) throws Exception {
