@@ -19,6 +19,8 @@ import org.springframework.util.StringUtils;
 public class SearchService {
     private static final int RRF_K = 60; // 07-ai-pipeline.md
     private static final int MAX_HITS_PER_STRATEGY = 20; // 07-ai-pipeline.md
+    private static final int MAX_SEARCH_LIMIT = 50; // 03-api-spec.md
+    private static final int SNIPPET_LENGTH = 200; // 03-api-spec.md
 
     private final ChunkRepository chunks;
     private final DocumentRepository documents;
@@ -39,7 +41,7 @@ public class SearchService {
         if (embeddingPort == null) {
             throw new ValidationException("embedding is not configured");
         }
-        int cappedLimit = Math.max(1, Math.min(limit, 50));
+        int cappedLimit = Math.max(1, Math.min(limit, MAX_SEARCH_LIMIT));
         Map<UUID, RankedChunk> ranked = new LinkedHashMap<>();
         merge(ranked, chunks.vectorHits(vector(embeddingPort.embed(query)), spaceIdOrNull));
         merge(ranked, chunks.keywordHits(query, spaceIdOrNull));
@@ -55,7 +57,7 @@ public class SearchService {
                             item.row().getDocumentId(),
                             document.getTitle(),
                             item.row().getHeadingPath(),
-                            item.row().getText().substring(0, Math.min(200, item.row().getText().length())),
+                            item.row().getText().substring(0, Math.min(SNIPPET_LENGTH, item.row().getText().length())),
                             item.score()
                     );
                 })
