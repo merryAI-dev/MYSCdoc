@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -26,6 +27,8 @@ public class Document {
     @Column(nullable = false) private int ttlDays;
     @Column(nullable = false) private Instant createdAt;
     @Column(nullable = false) private Instant updatedAt;
+    // Guards status transitions (verify vs staleness job) against silent lost updates.
+    @Version @Column(nullable = false) private long version;
 
     protected Document() {}
 
