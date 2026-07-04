@@ -94,9 +94,11 @@ function scheduleSnapshot(documentName, document) {
   }
 }
 
-async function flushSnapshot(documentName, document, retry = true) {
+async function flushSnapshot(documentName, document, retry = true, forcePending = false) {
   const timer = snapshotTimers.get(documentName)
-  const hadPendingSnapshot = Boolean(timer)
+  // A retry represents a snapshot we already decided to send, so treat it as pending even though
+  // the timer was cleared on the first attempt — otherwise a null-editor retry is silently dropped.
+  const hadPendingSnapshot = Boolean(timer) || forcePending
   if (timer?.debounce) {
     clearTimeout(timer.debounce)
   }
@@ -125,7 +127,7 @@ async function flushSnapshot(documentName, document, retry = true) {
       }),
     })
     if (response.status >= 500 && retry) {
-      setTimeout(() => flushSnapshot(documentName, document, false), SNAPSHOT_RETRY_MS)
+      setTimeout(() => flushSnapshot(documentName, document, false, true), SNAPSHOT_RETRY_MS)
       return
     }
     if (!response.ok) {
@@ -133,7 +135,7 @@ async function flushSnapshot(documentName, document, retry = true) {
     }
   } catch (error) {
     if (retry) {
-      setTimeout(() => flushSnapshot(documentName, document, false), SNAPSHOT_RETRY_MS)
+      setTimeout(() => flushSnapshot(documentName, document, false, true), SNAPSHOT_RETRY_MS)
     } else {
       console.error('snapshot commit failed', error)
     }
