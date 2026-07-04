@@ -23,6 +23,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -76,6 +78,7 @@ public class SlackIngestService {
             }
         } catch (RuntimeException exception) {
             log.warn("Slack thread ingest failed", exception);
+            rollback();
             safeReply(slackGateway, channelId, replyThreadTs, "요약에 실패했어요. 잠시 후 다시 이모지를 달아주세요.");
         }
     }
@@ -96,9 +99,15 @@ public class SlackIngestService {
         ThreadSummary summary = summaries.summarize(messages);
         var document = documents.create(space.getId(), summary.title(), owner.getId());
         documents.replaceBlocks(document.getId(), blocks(summary, threadTs, permalink), owner.getId(), ChangeCause.SLACK_INGEST);
-        ingestLogs.save(new SlackIngestLog(channelId, threadTs, document.getId()));
+        ingestLogs.saveAndFlush(new SlackIngestLog(channelId, threadTs, document.getId()));
         safeReply(slack(), channelId, threadTs, documentUrl(document.getId()));
         return document.getId();
+    }
+
+    private void rollback() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        }
     }
 
     private Member owner(String reactorUserId) {
