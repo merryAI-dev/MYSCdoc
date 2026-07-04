@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,8 +51,7 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
                     return;
                 }
             } else if (path.startsWith("/api/internal/")) {
-                if (StringUtils.hasText(internalServiceToken)
-                        && ("Bearer " + internalServiceToken).equals(request.getHeader("Authorization"))) {
+                if (isValidInternalToken(request.getHeader("Authorization"))) {
                     filterChain.doFilter(request, response);
                     return;
                 }
@@ -65,6 +66,16 @@ public class HeaderAuthFilter extends OncePerRequestFilter {
         } finally {
             SecurityContextHolder.clearContext();
         }
+    }
+
+    private boolean isValidInternalToken(String header) {
+        if (!StringUtils.hasText(internalServiceToken) || header == null) {
+            return false;
+        }
+        // MessageDigest.isEqual is constant-time, so token guesses can't be timed byte-by-byte.
+        byte[] expected = ("Bearer " + internalServiceToken).getBytes(StandardCharsets.UTF_8);
+        byte[] actual = header.getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(expected, actual);
     }
 
     private boolean authenticateMember(HttpServletRequest request, HttpServletResponse response, String path) throws IOException {
