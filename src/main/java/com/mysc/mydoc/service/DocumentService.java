@@ -77,6 +77,11 @@ public class DocumentService {
                 .orElseThrow(() -> new NotFoundException("document not found: " + docId));
     }
 
+    public Document getLocked(UUID docId) {
+        return documents.findLockedById(docId)
+                .orElseThrow(() -> new NotFoundException("document not found: " + docId));
+    }
+
     @Transactional(readOnly = true)
     public Page<Document> list(UUID spaceId, Pageable p) {
         return documents.findBySpaceIdAndStatusNot(spaceId, DocStatus.ARCHIVED, p);
