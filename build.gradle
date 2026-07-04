@@ -8,7 +8,6 @@ group = 'com.mysc'
 version = '0.0.1-SNAPSHOT'
 
 ext['testcontainers.version'] = '2.0.5'
-ext['springAi.version'] = '1.0.9'
 ext['slackSdk.version'] = '1.49.0'
 ext['mcpSdk.version'] = '2.0.0'
 ext['springdoc.version'] = '2.5.0'
@@ -16,12 +15,6 @@ ext['springdoc.version'] = '2.5.0'
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
-    }
-}
-
-dependencyManagement {
-    imports {
-        mavenBom "org.springframework.ai:spring-ai-bom:${property('springAi.version')}"
     }
 }
 
@@ -35,8 +28,6 @@ dependencies {
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation "org.hibernate.orm:hibernate-vector:${dependencyManagement.managedVersions['org.hibernate.orm:hibernate-core']}"
     implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${property('springdoc.version')}"
-    implementation 'org.springframework.ai:spring-ai-starter-model-openai'
-    implementation 'org.springframework.ai:spring-ai-starter-model-anthropic'
     implementation "com.slack.api:bolt-socket-mode:${property('slackSdk.version')}"
     implementation "com.slack.api:slack-api-client:${property('slackSdk.version')}"
     implementation "io.modelcontextprotocol.sdk:mcp-core:${property('mcpSdk.version')}"
