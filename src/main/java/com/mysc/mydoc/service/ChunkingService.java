@@ -39,7 +39,12 @@ public class ChunkingService {
 
     @Transactional
     public void rechunk(UUID docId) {
-        Document document = documents.get(docId);
+        // Lock the document so concurrent rechunks for the same doc serialize instead of
+        // interleaving delete/embed/save and leaving stale or duplicate chunks behind.
+        // ponytail: embedAll below still runs inside this transaction (holds a DB connection
+        // during the embedding call). Fine while embeddings are dormant; if the OpenAI path is
+        // enabled under load, move embedding computation before the write transaction.
+        Document document = documents.getLocked(docId);
         chunks.deleteByDocumentId(docId);
         List<Section> sections = sections(document, blocks.findByDocumentIdOrderByPosition(docId));
         List<Section> pieces = new ArrayList<>();
