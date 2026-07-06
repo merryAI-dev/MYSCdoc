@@ -18,8 +18,12 @@ import com.mysc.mydoc.repository.DocumentRepository;
 import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.RevisionRepository;
 import com.mysc.mydoc.repository.SpaceRepository;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
@@ -30,6 +34,9 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class DocumentService {
+    private static final Duration REVISION_SQUASH_WINDOW = Duration.ofMinutes(10);
+    private static final Set<ChangeCause> SQUASHABLE_REVISION_CAUSES = EnumSet.of(ChangeCause.MANUAL, ChangeCause.SNAPSHOT_COMMIT);
+
     private final DocumentRepository documents;
     private final SpaceRepository spaces;
     private final MemberRepository members;
@@ -129,13 +136,28 @@ public class DocumentService {
 
         blocks.saveAll(newBlocks);
         JsonNode snapshot = objectMapper.valueToTree(payloads);
-        revisions.save(new Revision(docId, snapshot, editorId, cause));
+        saveRevision(docId, snapshot, editorId, cause);
         if (document.getStatus() == DocStatus.DRAFT && cause != ChangeCause.SLACK_INGEST && cause != ChangeCause.AI_SUGGESTION) {
             document.activate();
         } else {
             document.rename(document.getTitle());
         }
         events.publishEvent(new DocumentChangedEvent(docId));
+    }
+
+    private void saveRevision(UUID docId, JsonNode snapshot, UUID editorId, ChangeCause cause) {
+        if (SQUASHABLE_REVISION_CAUSES.contains(cause)) {
+            Instant threshold = Instant.now().minus(REVISION_SQUASH_WINDOW);
+            var latest = revisions.findFirstByDocumentIdOrderByCreatedAtDesc(docId);
+            if (latest.isPresent()
+                    && latest.get().getEditorId().equals(editorId)
+                    && SQUASHABLE_REVISION_CAUSES.contains(latest.get().getCause())
+                    && latest.get().getCreatedAt().isAfter(threshold)) {
+                latest.get().replace(snapshot, cause);
+                return;
+            }
+        }
+        revisions.save(new Revision(docId, snapshot, editorId, cause));
     }
 
     @Transactional

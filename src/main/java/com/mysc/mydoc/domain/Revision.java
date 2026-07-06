@@ -33,6 +33,12 @@ public class Revision {
         this.createdAt = Instant.now();
     }
 
+    public void replace(JsonNode snapshot, ChangeCause cause) {
+        this.snapshot = snapshot;
+        this.cause = cause;
+        this.createdAt = Instant.now();
+    }
+
     public UUID getId() { return id; }
     public UUID getDocumentId() { return documentId; }
     public JsonNode getSnapshot() { return snapshot; }

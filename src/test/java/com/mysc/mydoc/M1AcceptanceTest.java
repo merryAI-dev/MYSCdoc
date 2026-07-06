@@ -187,13 +187,14 @@ class M1AcceptanceTest {
 
         ResponseEntity<Map> revisions = exchange("/api/documents/" + documentId + "/revisions", HttpMethod.GET, null, memberId);
         assertThat(revisions.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(revisions.getBody()).containsEntry("totalElements", 2);
+        assertThat(revisions.getBody()).containsEntry("totalElements", 1);
         List<Map<String, Object>> revisionSummaries = (List<Map<String, Object>>) revisions.getBody().get("content");
         assertThat(revisionSummaries.get(0)).doesNotContainKey("snapshot");
         String revisionId = (String) revisionSummaries.get(0).get("id");
         ResponseEntity<Map> revisionDetail = exchange("/api/revisions/" + revisionId, HttpMethod.GET, null, memberId);
         assertThat(revisionDetail.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(revisionDetail.getBody()).containsKey("snapshot");
+        assertThat(revisionDetail.getBody().get("snapshot").toString()).contains("계정 재발급");
 
         Map<String, Object> nullBlocksBody = new LinkedHashMap<>();
         nullBlocksBody.put("blocks", null);
