@@ -5,6 +5,7 @@ import com.slack.api.methods.MethodsClient;
 import com.slack.api.model.Message;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,8 @@ import org.springframework.util.StringUtils;
 public class SlackApiGateway implements SlackGateway, SlackDmPort {
     private final MethodsClient slack;
 
+    // 생성자가 2개(테스트용 포함)라 Spring이 고를 수 있게 명시한다. 실토큰으로 기동해야만 드러나는 지점.
+    @Autowired
     public SlackApiGateway(@Value("${mydoc.slack.bot-token}") String botToken) {
         this(Slack.getInstance().methods(botToken));
     }
