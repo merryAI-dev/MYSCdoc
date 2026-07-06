@@ -380,7 +380,7 @@ $('search').addEventListener('input', e => {
   const query = e.target.value.trim()
   if (!query) { $('searchResults').style.display = 'none'; return }
   searchTimer = setTimeout(async () => {
-    const r = await api('GET', `/api/search?query=${encodeURIComponent(query)}&limit=8`).catch(() => ({ hits: [] }))
+    const r = await api('GET', `/api/search?q=${encodeURIComponent(query)}&limit=8`).catch(() => ({ hits: [] }))
     const box = $('searchResults')
     box.innerHTML = r.hits.map(h =>
       `<div class="hit" data-doc="${h.documentId}"><div class="path">${esc(h.headingPath || h.title)}</div>${esc(h.snippet || '').slice(0, 120)}</div>`
