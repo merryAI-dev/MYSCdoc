@@ -1,0 +1,7 @@
+.git
+.gradle
+build
+.env
+*.log
+editing-plane/node_modules
+editing-plane/.env
