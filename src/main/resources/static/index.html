@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mydoc</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F7F6F2; --paper-dim: #EDEBE2; --ink: #26241F; --stone: #8A857A;
+    --injoo: #C0392B; --stale: #B08540; --line: #DDD9CE;
+    --serif: 'Noto Serif KR', serif;
+    --sans: -apple-system, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif;
+    --mono: ui-monospace, 'SF Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: var(--sans); background: var(--paper); color: var(--ink); height: 100vh; overflow: hidden; }
+  button { font-family: inherit; cursor: pointer; }
+  input { font-family: inherit; }
+
+  /* ---------- login ---------- */
+  #login { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 14px; }
+  #login h1 { font-family: var(--serif); font-weight: 900; font-size: 42px; letter-spacing: -0.02em; }
+  #login p { color: var(--stone); font-size: 14px; }
+  #login input { width: 340px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-family: var(--mono); font-size: 13px; }
+  #login button { padding: 10px 28px; border: none; border-radius: 6px; background: var(--ink); color: var(--paper); font-size: 14px; }
+  #login .err { color: var(--injoo); font-size: 13px; min-height: 18px; }
+
+  /* ---------- shell ---------- */
+  #app { display: none; height: 100vh; }
+  #app.on { display: flex; }
+  aside { width: 264px; min-width: 264px; border-right: 1px solid var(--line); background: var(--paper-dim); display: flex; flex-direction: column; }
+  aside .brand { font-family: var(--serif); font-weight: 900; font-size: 20px; padding: 18px 16px 10px; }
+  aside .me { padding: 0 16px 12px; font-size: 12px; color: var(--stone); display: flex; justify-content: space-between; }
+  aside .me button { background: none; border: none; color: var(--stone); font-size: 12px; text-decoration: underline; padding: 0; }
+  #searchWrap { padding: 0 12px 10px; position: relative; }
+  #searchWrap input { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; }
+  #searchResults { position: absolute; left: 12px; right: 12px; top: 38px; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.08); z-index: 30; max-height: 320px; overflow: auto; display: none; }
+  #searchResults .hit { padding: 9px 11px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--paper-dim); }
+  #searchResults .hit:hover { background: var(--paper); }
+  #searchResults .hit .path { font-size: 11px; color: var(--stone); margin-bottom: 2px; }
+  nav { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
+  .spaceRow { display: flex; align-items: center; justify-content: space-between; padding: 7px 8px 3px; font-size: 11px; font-weight: 700; color: var(--stone); letter-spacing: .06em; text-transform: uppercase; }
+  .docRow { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; cursor: pointer; color: var(--ink); }
+  .docRow:hover { background: rgba(0,0,0,.045); }
+  .docRow.active { background: rgba(0,0,0,.08); font-weight: 600; }
+  .docRow .st { font-size: 10px; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
+  .st.DRAFT { border: 1px dashed var(--stone); color: var(--stone); }
+  .st.STALE { background: var(--stale); color: #fff; }
+  .newDoc { margin: 6px 8px; padding: 7px 8px; width: calc(100% - 16px); text-align: left; background: none; border: none; border-radius: 6px; color: var(--stone); font-size: 13px; }
+  .newDoc:hover { background: rgba(0,0,0,.045); color: var(--ink); }
+
+  /* ---------- main ---------- */
+  main { flex: 1; overflow-y: auto; position: relative; }
+  #empty { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--stone); font-size: 15px; }
+  #docView { display: none; max-width: 780px; margin: 0 auto; padding: 44px 48px 120px; }
+  #staleBanner { display: none; margin-bottom: 20px; padding: 10px 14px; border: 1px solid var(--stale); border-radius: 6px; color: var(--stale); font-size: 13.5px; align-items: center; justify-content: space-between; }
+  #staleBanner button { border: 1px solid var(--stale); background: none; color: var(--stale); border-radius: 5px; padding: 4px 12px; font-size: 12.5px; }
+  .docHead { display: flex; align-items: flex-start; gap: 16px; }
+  #docTitle { font-family: var(--serif); font-weight: 900; font-size: 34px; line-height: 1.25; letter-spacing: -0.01em; flex: 1; outline: none; border-radius: 4px; }
+  #docTitle:focus { background: rgba(0,0,0,.04); }
+
+  /* 검증 도장 — signature element */
+  #stamp { width: 62px; height: 62px; flex-shrink: 0; border: 2.5px solid var(--injoo); border-radius: 50%;
+    display: none; align-items: center; justify-content: center; transform: rotate(-8deg);
+    font-family: var(--serif); font-weight: 900; font-size: 17px; color: var(--injoo);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.55' /%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .82 0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.55'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .82 0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  #stamp.on { display: flex; }
+
+  .metaRow { display: flex; align-items: center; gap: 14px; margin: 14px 0 6px; font-size: 12.5px; color: var(--stone); font-family: var(--mono); flex-wrap: wrap; }
+  #freshness { display: flex; align-items: center; gap: 6px; }
+  #freshBar { width: 72px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  #freshBar i { display: block; height: 100%; background: var(--ink); }
+  #freshBar i.warn { background: var(--stale); }
+  .actions { display: flex; gap: 8px; margin: 10px 0 26px; }
+  .actions button { padding: 6px 14px; font-size: 13px; border: 1px solid var(--line); background: #fff; border-radius: 6px; color: var(--ink); }
+  .actions button:hover { border-color: var(--stone); }
+  #saveState { margin-left: auto; font-size: 12px; color: var(--stone); align-self: center; font-family: var(--mono); }
+
+  /* ---------- editor ---------- */
+  #editor .tiptap { outline: none; min-height: 320px; font-size: 16px; line-height: 1.75; }
+  #editor .tiptap > * + * { margin-top: .6em; }
+  #editor h1, #editor h2, #editor h3 { font-family: var(--serif); font-weight: 700; letter-spacing: -0.01em; margin-top: 1.2em; }
+  #editor h1 { font-size: 26px; } #editor h2 { font-size: 21px; } #editor h3 { font-size: 17px; }
+  #editor blockquote { border-left: 3px solid var(--line); padding-left: 14px; color: var(--stone); }
+  #editor pre { background: var(--ink); color: var(--paper); padding: 14px 16px; border-radius: 8px; font-family: var(--mono); font-size: 13.5px; overflow-x: auto; }
+  #editor code { font-family: var(--mono); font-size: .9em; }
+  #editor ul, #editor ol { padding-left: 1.4em; }
+  #editor table { border-collapse: collapse; width: 100%; }
+  #editor td, #editor th { border: 1px solid var(--line); padding: 6px 10px; font-size: 14.5px; }
+  #editor th { background: var(--paper-dim); }
+  #editor img { max-width: 100%; border-radius: 6px; }
+
+  /* ---------- panels / toast ---------- */
+  #panel { position: fixed; right: 0; top: 0; bottom: 0; width: 380px; background: #fff; border-left: 1px solid var(--line);
+    box-shadow: -8px 0 30px rgba(0,0,0,.06); transform: translateX(100%); transition: transform .18s ease; z-index: 40;
+    display: flex; flex-direction: column; }
+  #panel.open { transform: none; }
+  #panel header { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--line); font-weight: 700; }
+  #panel header button { border: none; background: none; font-size: 18px; color: var(--stone); }
+  #panelBody { flex: 1; overflow-y: auto; padding: 14px 18px; font-size: 13.5px; }
+  .finding { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .finding .cat { font-size: 11px; font-family: var(--mono); color: var(--stone); margin-bottom: 6px; }
+  .finding .orig { text-decoration: line-through; color: var(--stone); }
+  .finding .sugg { color: var(--ink); font-weight: 600; }
+  .finding .why { margin-top: 6px; color: var(--stone); font-size: 12.5px; }
+  .revRow { padding: 9px 2px; border-bottom: 1px solid var(--paper-dim); font-family: var(--mono); font-size: 12px; color: var(--stone); }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper);
+    padding: 10px 18px; border-radius: 8px; font-size: 13.5px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
+  #toast.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { #panel { transition: none; } }
+  @media (max-width: 720px) { aside { display: none; } #docView { padding: 24px 20px 80px; } }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>mydoc</h1>
+  <p>멤버 ID(UUID)로 들어가요. 관리자에게 발급받을 수 있어요.</p>
+  <input id="loginId" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false">
+  <div class="err" id="loginErr"></div>
+  <button id="loginBtn">들어가기</button>
+</div>
+
+<div id="app">
+  <aside>
+    <div class="brand">mydoc</div>
+    <div class="me"><span id="meName"></span><button id="logout">나가기</button></div>
+    <div id="searchWrap">
+      <input id="search" placeholder="문서 검색…">
+      <div id="searchResults"></div>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+  <main>
+    <div id="empty">왼쪽에서 문서를 선택하거나, 새 문서를 만들어보세요.</div>
+    <div id="docView">
+      <div id="staleBanner"><span>이 문서는 오래됐어요. 내용이 아직 유효한지 확인해 주세요.</span><button id="staleVerify">지금 검증</button></div>
+      <div class="docHead">
+        <h1 id="docTitle" contenteditable="true" spellcheck="false"></h1>
+        <div id="stamp">검증</div>
+      </div>
+      <div class="metaRow">
+        <span id="metaOwner"></span>
+        <span id="metaStatus"></span>
+        <span id="freshness"><span id="freshLabel"></span><span id="freshBar"><i></i></span></span>
+      </div>
+      <div class="actions">
+        <button id="btnVerify">검증하기</button>
+        <button id="btnCorrect">AI 교정</button>
+        <button id="btnRevs">리비전</button>
+        <button id="btnArchive">보관</button>
+        <span id="saveState"></span>
+      </div>
+      <div id="editor"></div>
+    </div>
+  </main>
+</div>
+
+<div id="panel">
+  <header><span id="panelTitle"></span><button id="panelClose">✕</button></header>
+  <div id="panelBody"></div>
+</div>
+<div id="toast"></div>
+
+<script type="module">
+import { Editor } from 'https://esm.sh/@tiptap/core@2.14.0'
+import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.14.0'
+import Image from 'https://esm.sh/@tiptap/extension-image@2.14.0'
+import Table from 'https://esm.sh/@tiptap/extension-table@2.14.0'
+import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2.14.0'
+import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2.14.0'
+import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2.14.0'
+
+// ---------- state ----------
+const $ = id => document.getElementById(id)
+let memberId = localStorage.getItem('mydoc.memberId') || ''
+let me = null, spaces = [], docsBySpace = {}, currentDoc = null, editor = null
+let dirty = false, saveTimer = null, saving = false
+
+// ---------- api ----------
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { 'X-Member-Id': memberId, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (res.status === 204) return null
+  const json = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(json?.detail || `${res.status} 오류`)
+  return json
+}
+function toast(msg) {
+  $('toast').textContent = msg
+  $('toast').classList.add('on')
+  clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('on'), 2400)
+}
+
+// ---------- block mapping (editing-plane server.js와 동일 규칙) ----------
+function blockType(node) {
+  if (node.type === 'heading') return ['HEADING1','HEADING2','HEADING3'][Math.min((node.attrs?.level || 1), 3) - 1]
+  return { paragraph:'PARAGRAPH', bulletList:'BULLET_LIST', orderedList:'ORDERED_LIST',
+           codeBlock:'CODE', table:'TABLE', blockquote:'QUOTE', image:'IMAGE' }[node.type] || 'PARAGRAPH'
+}
+const docToBlocks = json => (json.content || []).map(node => ({ type: blockType(node), content: node, sourceType: 'MANUAL' }))
+const blocksToDoc = blocks => ({ type: 'doc', content: blocks.length ? blocks.map(b => b.content) : [{ type: 'paragraph' }] })
+
+// ---------- login ----------
+async function tryLogin(id) {
+  memberId = id.trim()
+  me = await api('GET', '/api/members/me')
+  localStorage.setItem('mydoc.memberId', memberId)
+  $('login').style.display = 'none'
+  $('app').classList.add('on')
+  $('meName').textContent = `${me.displayName} · ${me.role}`
+  await loadNav()
+}
+$('loginBtn').onclick = () => tryLogin($('loginId').value).catch(e => $('loginErr').textContent = e.message)
+$('loginId').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click() })
+$('logout').onclick = () => { localStorage.removeItem('mydoc.memberId'); location.reload() }
+
+// ---------- sidebar ----------
+async function loadNav() {
+  spaces = await api('GET', '/api/spaces')
+  const nav = $('nav'); nav.innerHTML = ''
+  for (const space of spaces) {
+    const head = document.createElement('div')
+    head.className = 'spaceRow'; head.textContent = space.name
+    nav.appendChild(head)
+    const page = await api('GET', `/api/documents?spaceId=${space.id}&page=0&size=100`)
+    docsBySpace[space.id] = page.content
+    for (const doc of page.content) nav.appendChild(docRow(doc))
+    const add = document.createElement('button')
+    add.className = 'newDoc'; add.textContent = '＋ 새 문서'
+    add.onclick = async () => {
+      const created = await api('POST', '/api/documents', { spaceId: space.id, title: '제목 없음' }).catch(e => toast(e.message))
+      if (created) { await loadNav(); openDoc(created.id) }
+    }
+    nav.appendChild(add)
+  }
+  if (me.role === 'ADMIN') {
+    const add = document.createElement('button')
+    add.className = 'newDoc'; add.textContent = '＋ 새 스페이스'
+    add.onclick = async () => {
+      const name = prompt('스페이스 이름'); if (!name) return
+      const slug = prompt('slug (영문 소문자/하이픈)'); if (!slug) return
+      await api('POST', '/api/spaces', { slug, name }).then(loadNav).catch(e => toast(e.message))
+    }
+    nav.appendChild(add)
+  }
+}
+function docRow(doc) {
+  const row = document.createElement('div')
+  row.className = 'docRow'; row.dataset.docId = doc.id
+  if (currentDoc?.id === doc.id) row.classList.add('active')
+  const title = document.createElement('span'); title.textContent = doc.title; title.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+  row.appendChild(title)
+  if (doc.status !== 'ACTIVE') { const st = document.createElement('span'); st.className = 'st ' + doc.status; st.textContent = doc.status; row.appendChild(st) }
+  row.onclick = () => openDoc(doc.id)
+  return row
+}
+
+// ---------- document ----------
+async function openDoc(id) {
+  await flushSave()
+  currentDoc = await api('GET', `/api/documents/${id}`)
+  $('empty').style.display = 'none'
+  $('docView').style.display = 'block'
+  document.querySelectorAll('.docRow').forEach(r => r.classList.toggle('active', r.dataset.docId === id))
+  $('docTitle').textContent = currentDoc.title
+  renderMeta()
+  if (editor) editor.destroy()
+  editor = new Editor({
+    element: $('editor'),
+    extensions: [StarterKit, Image, Table, TableRow, TableCell, TableHeader],
+    content: blocksToDoc(currentDoc.blocks),
+    onUpdate: () => { dirty = true; $('saveState').textContent = '수정됨'; clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 3000) },
+  })
+  $('saveState').textContent = ''
+}
+function renderMeta() {
+  const doc = currentDoc
+  $('metaOwner').textContent = `owner ${doc.owner.displayName}`
+  $('metaStatus').textContent = doc.status
+  $('staleBanner').style.display = doc.status === 'STALE' ? 'flex' : 'none'
+  // 신선도: verifiedAt(없으면 createdAt) + ttlDays 기준 D-day
+  const base = new Date(doc.verifiedAt || doc.createdAt)
+  const expires = new Date(base.getTime() + doc.ttlDays * 86400000)
+  const daysLeft = Math.ceil((expires - Date.now()) / 86400000)
+  const ratio = Math.max(0, Math.min(1, daysLeft / doc.ttlDays))
+  $('freshLabel').textContent = daysLeft > 0 ? `신선도 D-${daysLeft}` : '기한 지남'
+  const bar = $('freshBar').firstElementChild
+  bar.style.width = (ratio * 100) + '%'
+  bar.className = ratio < .25 ? 'warn' : ''
+  $('stamp').classList.toggle('on', Boolean(doc.verifiedAt) && doc.status === 'ACTIVE')
+}
+async function flushSave() {
+  if (!dirty || !currentDoc || saving) return
+  saving = true; dirty = false
+  $('saveState').textContent = '저장 중…'
+  try {
+    await api('PUT', `/api/documents/${currentDoc.id}/blocks`, { blocks: docToBlocks(editor.getJSON()) })
+    currentDoc = await api('GET', `/api/documents/${currentDoc.id}`)
+    renderMeta()
+    $('saveState').textContent = '저장됨'
+  } catch (e) { dirty = true; $('saveState').textContent = '저장 실패'; toast(e.message) }
+  saving = false
+}
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); flushSave() }
+})
+window.addEventListener('beforeunload', () => { if (dirty) navigator.sendBeacon && flushSave() })
+
+// title
+$('docTitle').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } })
+$('docTitle').addEventListener('blur', async e => {
+  const title = e.target.textContent.trim() || '제목 없음'
+  if (!currentDoc || title === currentDoc.title) return
+  currentDoc = await api('PUT', `/api/documents/${currentDoc.id}/title`, { title }).catch(err => (toast(err.message), currentDoc))
+  loadNav()
+})
+
+// actions
+async function verifyNow() {
+  await api('POST', `/api/documents/${currentDoc.id}/verify`).catch(e => { throw e })
+  currentDoc = await api('GET', `/api/documents/${currentDoc.id}`)
+  renderMeta(); loadNav(); toast('검증 도장을 찍었어요')
+}
+$('btnVerify').onclick = () => verifyNow().catch(e => toast(e.message))
+$('staleVerify').onclick = () => verifyNow().catch(e => toast(e.message))
+$('btnArchive').onclick = async () => {
+  if (!confirm('이 문서를 보관할까요? 목록에서 숨겨져요.')) return
+  await api('POST', `/api/documents/${currentDoc.id}/archive`).catch(e => toast(e.message))
+  currentDoc = null; $('docView').style.display = 'none'; $('empty').style.display = 'flex'
+  loadNav()
+}
+$('btnCorrect').onclick = async () => {
+  openPanel('AI 교정')
+  $('panelBody').innerHTML = '<p style="color:var(--stone)">Gemini가 문서를 읽고 있어요…</p>'
+  try {
+    const r = await api('POST', `/api/documents/${currentDoc.id}/corrections`)
+    $('panelBody').innerHTML = `<p style="margin-bottom:12px">문서 점수 <b>${r.score}</b> / 100</p>` +
+      (r.findings.length ? r.findings.map(f =>
+        `<div class="finding"><div class="cat">${f.category} · 블록 ${f.blockPosition}</div>
+         <div class="orig">${esc(f.original)}</div><div class="sugg">→ ${esc(f.suggestion)}</div>
+         <div class="why">${esc(f.reason)}</div></div>`).join('')
+       : '<p style="color:var(--stone)">고칠 곳을 찾지 못했어요.</p>')
+  } catch (e) { $('panelBody').innerHTML = `<p style="color:var(--injoo)">${esc(e.message)}</p>` }
+}
+$('btnRevs').onclick = async () => {
+  openPanel('리비전 이력')
+  const page = await api('GET', `/api/documents/${currentDoc.id}/revisions?page=0&size=30`).catch(e => (toast(e.message), { content: [] }))
+  $('panelBody').innerHTML = page.content.map(r =>
+    `<div class="revRow">${new Date(r.createdAt).toLocaleString('ko-KR')} · ${esc(r.editorName || '?')} · ${r.cause}</div>`
+  ).join('') || '<p style="color:var(--stone)">이력이 없어요.</p>'
+}
+function openPanel(title) { $('panelTitle').textContent = title; $('panel').classList.add('open') }
+$('panelClose').onclick = () => $('panel').classList.remove('open')
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
+
+// ---------- search ----------
+let searchTimer = null
+$('search').addEventListener('input', e => {
+  clearTimeout(searchTimer)
+  const query = e.target.value.trim()
+  if (!query) { $('searchResults').style.display = 'none'; return }
+  searchTimer = setTimeout(async () => {
+    const r = await api('GET', `/api/search?query=${encodeURIComponent(query)}&limit=8`).catch(() => ({ hits: [] }))
+    const box = $('searchResults')
+    box.innerHTML = r.hits.map(h =>
+      `<div class="hit" data-doc="${h.documentId}"><div class="path">${esc(h.headingPath || h.title)}</div>${esc(h.snippet || '').slice(0, 120)}</div>`
+    ).join('') || '<div class="hit" style="color:var(--stone)">결과가 없어요</div>'
+    box.style.display = 'block'
+    box.querySelectorAll('[data-doc]').forEach(el => el.onclick = () => { box.style.display = 'none'; $('search').value = ''; openDoc(el.dataset.doc) })
+  }, 250)
+})
+document.addEventListener('click', e => { if (!$('searchWrap').contains(e.target)) $('searchResults').style.display = 'none' })
+
+// ---------- boot ----------
+if (memberId) tryLogin(memberId).catch(() => { localStorage.removeItem('mydoc.memberId'); memberId = '' })
+</script>
+</body>
+</html>
