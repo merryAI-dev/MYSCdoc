@@ -11,6 +11,8 @@ import org.springframework.data.repository.query.Param;
 public interface ChunkRepository extends JpaRepository<Chunk, UUID> {
     String TOP_HITS_LIMIT_CLAUSE = "LIMIT 20"; // 07-ai-pipeline.md
 
+    List<Chunk> findByDocumentIdOrderByCreatedAtAscIdAsc(UUID documentId);
+
     @Modifying
     @Query("delete from Chunk c where c.documentId = :documentId")
     void deleteByDocumentId(@Param("documentId") UUID documentId);

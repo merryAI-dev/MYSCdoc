@@ -5,6 +5,7 @@ import com.mysc.mydoc.ai.EmbeddingPort;
 import com.mysc.mydoc.domain.Block;
 import com.mysc.mydoc.domain.BlockType;
 import com.mysc.mydoc.domain.Chunk;
+import com.mysc.mydoc.domain.DocStatus;
 import com.mysc.mydoc.domain.Document;
 import com.mysc.mydoc.repository.BlockRepository;
 import com.mysc.mydoc.repository.ChunkRepository;
@@ -37,6 +38,10 @@ public class ChunkingService {
         this.embeddings = embeddings;
     }
 
+    public boolean isEnabled() {
+        return embeddings.getIfAvailable() != null;
+    }
+
     @Transactional
     public void rechunk(UUID docId) {
         // Lock the document so concurrent rechunks for the same doc serialize instead of
@@ -45,7 +50,11 @@ public class ChunkingService {
         // during the embedding call). Fine while embeddings are dormant; if the OpenAI path is
         // enabled under load, move embedding computation before the write transaction.
         Document document = documents.getLocked(docId);
-        chunks.deleteByDocumentId(docId);
+        List<Chunk> existing = chunks.findByDocumentIdOrderByCreatedAtAscIdAsc(docId);
+        if (document.getStatus() == DocStatus.DRAFT) {
+            chunks.deleteByDocumentId(docId);
+            return;
+        }
         List<Section> sections = sections(document, blocks.findByDocumentIdOrderByPosition(docId));
         List<Section> pieces = new ArrayList<>();
         for (Section section : sections) {
@@ -54,18 +63,59 @@ public class ChunkingService {
             }
         }
         if (pieces.isEmpty()) {
+            chunks.deleteByDocumentId(docId);
             return;
         }
 
         EmbeddingPort embeddingPort = embeddings.getIfAvailable();
         if (embeddingPort == null) {
+            chunks.deleteByDocumentId(docId);
+            return;
+        }
+
+        // ponytail: chunk text is the content hash; add a stored hash only if this scan becomes hot.
+        if (sameTexts(pieces, existing) && existing.stream().allMatch(chunk -> chunk.getEmbedding() != null)) {
+            if (!sameHeadingPaths(pieces, existing)) {
+                replaceWithReusedEmbeddings(docId, pieces, existing);
+            }
             return;
         }
 
         List<float[]> vectors = embeddingPort.embedAll(pieces.stream().map(Section::text).toList());
+        chunks.deleteByDocumentId(docId);
         List<Chunk> saved = new ArrayList<>();
         for (int i = 0; i < pieces.size(); i++) {
             saved.add(new Chunk(docId, pieces.get(i).headingPath(), pieces.get(i).text(), vectors.get(i)));
+        }
+        chunks.saveAll(saved);
+    }
+
+    private boolean sameTexts(List<Section> pieces, List<Chunk> existing) {
+        if (pieces.size() != existing.size()) {
+            return false;
+        }
+        for (int i = 0; i < pieces.size(); i++) {
+            if (!pieces.get(i).text().equals(existing.get(i).getText())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean sameHeadingPaths(List<Section> pieces, List<Chunk> existing) {
+        for (int i = 0; i < pieces.size(); i++) {
+            if (!pieces.get(i).headingPath().equals(existing.get(i).getHeadingPath())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void replaceWithReusedEmbeddings(UUID docId, List<Section> pieces, List<Chunk> existing) {
+        chunks.deleteByDocumentId(docId);
+        List<Chunk> saved = new ArrayList<>();
+        for (int i = 0; i < pieces.size(); i++) {
+            saved.add(new Chunk(docId, pieces.get(i).headingPath(), pieces.get(i).text(), existing.get(i).getEmbedding()));
         }
         chunks.saveAll(saved);
     }

@@ -52,6 +52,7 @@ class M6AcceptanceTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("mydoc.document-base-url", () -> "http://mydoc.test");
+        registry.add("mydoc.rechunk.debounce", () -> "PT0S");
     }
 
     @TestConfiguration

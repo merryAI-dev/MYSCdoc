@@ -2,7 +2,12 @@ package com.mysc.mydoc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mysc.mydoc.ai.EmbeddingPort;
+import com.mysc.mydoc.domain.Block;
+import com.mysc.mydoc.domain.BlockType;
+import com.mysc.mydoc.domain.Provenance;
+import com.mysc.mydoc.domain.SourceType;
 import com.mysc.mydoc.repository.BlockRepository;
 import com.mysc.mydoc.repository.ChunkRepository;
 import com.mysc.mydoc.service.ChunkingService;
@@ -15,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,10 +63,13 @@ class M2AcceptanceTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("mydoc.rechunk.debounce", () -> "PT0S");
     }
 
     @TestConfiguration
     static class FakeEmbeddingConfig {
+        static final AtomicInteger embedAllCalls = new AtomicInteger();
+
         @Bean
         @Primary
         EmbeddingPort fakeEmbeddingPort() {
@@ -81,6 +90,7 @@ class M2AcceptanceTest {
 
                 @Override
                 public List<float[]> embedAll(List<String> texts) {
+                    embedAllCalls.incrementAndGet();
                     return texts.stream().map(this::embed).toList();
                 }
             };
@@ -103,6 +113,12 @@ class M2AcceptanceTest {
     ChunkRepository chunkRepository;
 
     @Autowired
+    ChunkingService chunkingService;
+
+    @Autowired
+    ObjectMapper objectMapper;
+
+    @Autowired
     PlatformTransactionManager transactionManager;
 
     UUID adminId;
@@ -112,6 +128,7 @@ class M2AcceptanceTest {
 
     @BeforeEach
     void setup() {
+        FakeEmbeddingConfig.embedAllCalls.set(0);
         testSuffix = UUID.randomUUID().toString();
         adminId = UUID.randomUUID();
         jdbcTemplate.update("""
@@ -215,6 +232,47 @@ class M2AcceptanceTest {
         assertThat(otherSpaceHits).extracting(hit -> hit.get("documentId"))
                 .contains(otherSpaceDoc.toString())
                 .doesNotContain(accountDoc.toString(), nestedDoc.toString());
+    }
+
+    @Test
+    void rechunk_skipsDraftDocuments() {
+        UUID documentId = createDocument("검증 전 회의록");
+        blockRepository.save(new Block(
+                documentId,
+                0,
+                BlockType.PARAGRAPH,
+                objectMapper.valueToTree(Map.of("type", "paragraph", "content", List.of(Map.of("type", "text", "text", "draft text")))),
+                new Provenance(SourceType.MANUAL, null, null)
+        ));
+
+        chunkingService.rechunk(documentId);
+
+        assertThat(FakeEmbeddingConfig.embedAllCalls).hasValue(0);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM chunk WHERE document_id = ?", Integer.class, documentId))
+                .isZero();
+    }
+
+    @Test
+    void rechunk_reusesExistingEmbeddingsWhenTextIsUnchanged() {
+        UUID documentId = createDocument("원래 제목");
+        jdbcTemplate.update("UPDATE document SET status = 'ACTIVE', updated_at = now(), version = version + 1 WHERE id = ?", documentId);
+        blockRepository.save(new Block(
+                documentId,
+                0,
+                BlockType.PARAGRAPH,
+                objectMapper.valueToTree(Map.of("type", "paragraph", "content", List.of(Map.of("type", "text", "text", "same text")))),
+                new Provenance(SourceType.MANUAL, null, null)
+        ));
+        chunkingService.rechunk(documentId);
+        assertThat(FakeEmbeddingConfig.embedAllCalls).hasValue(1);
+
+        FakeEmbeddingConfig.embedAllCalls.set(0);
+        jdbcTemplate.update("UPDATE document SET title = '바뀐 제목', updated_at = now(), version = version + 1 WHERE id = ?", documentId);
+        chunkingService.rechunk(documentId);
+
+        assertThat(FakeEmbeddingConfig.embedAllCalls).hasValue(0);
+        assertThat(jdbcTemplate.queryForObject("SELECT heading_path FROM chunk WHERE document_id = ?", String.class, documentId))
+                .isEqualTo("바뀐 제목");
     }
 
     @Test
