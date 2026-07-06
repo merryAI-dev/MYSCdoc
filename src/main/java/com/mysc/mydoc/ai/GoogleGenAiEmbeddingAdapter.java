@@ -1,14 +1,22 @@
 package com.mysc.mydoc.ai;
 
+import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.web.client.ClientHttpRequestFactories;
+import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @Component
 @ConditionalOnExpression("'${mydoc.gemini.api-key:}' != ''")
 public class GoogleGenAiEmbeddingAdapter implements EmbeddingPort {
+    // Same reasoning as GoogleGenAiChatClient: OkHttp's default 10s read timeout is too tight
+    // for batch-embedding a whole document.
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(120);
+
     private final RestClient restClient;
     private final String model;
     private final int dimensions;
@@ -24,6 +32,9 @@ public class GoogleGenAiEmbeddingAdapter implements EmbeddingPort {
         this.restClient = restClientBuilder
                 .baseUrl("https://generativelanguage.googleapis.com/v1beta")
                 .defaultHeader("x-goog-api-key", apiKey)
+                .requestFactory(ClientHttpRequestFactories.get(ClientHttpRequestFactorySettings.DEFAULTS
+                        .withConnectTimeout(CONNECT_TIMEOUT)
+                        .withReadTimeout(READ_TIMEOUT)))
                 .build();
     }
 

@@ -11,11 +11,21 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    // AI(Gemini) 등 외부 HTTP 호출 실패가 원인 불명 500으로 새지 않게 502로 답한다.
+    @ExceptionHandler(RestClientException.class)
+    ProblemDetail handleUpstream(RestClientException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_GATEWAY, "외부 서비스 호출에 실패했어요. 잠시 후 다시 시도해 주세요.");
+        problem.setInstance(URI.create(request.getRequestURI()));
+        return problem;
+    }
 
     @ExceptionHandler(ResponseStatusException.class)
     ProblemDetail handleResponseStatus(ResponseStatusException exception, HttpServletRequest request) {
