@@ -1,6 +1,7 @@
 # ROADMAP — Codex 인수인계
 
 M0~M6 백엔드 + 정적 웹 UI까지 완료된 상태에서 남은 개발을 4단계로 정리한다.
+**착수 전에 `RISKS.md`(리스크 대장·운영 정책)를 먼저 읽을 것** — 특히 실키 활성화와 M7 구현의 선행 조건이 거기 있다.
 작성 시점 상태: 커밋 `1fad5af`, 전체 `./gradlew clean build` green, 로컬 네이티브(Postgres 17 + pgvector + Redis) 실행 확인.
 
 ## 작업 규칙 (기존 컨벤션 유지)
