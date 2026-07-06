@@ -72,17 +72,19 @@ public class MeetEventPuller {
         }
     }
 
-    private void route(PubsubMessage message) {
+    void route(PubsubMessage message) {
         String type = message.getAttributesOrDefault("ce-type", "");
         if (!StringUtils.hasText(type)) {
             type = message.getAttributesOrDefault("ce_type", "");
         }
-        JsonNode payload = readPayload(message);
         if (MeetSubscriptionJob.SMART_NOTE_FILE_GENERATED.equals(type)) {
+            JsonNode payload = readPayload(message);
             ingest.onArtifactGenerated(requiredName(payload, "smartNote"), ArtifactKind.SMART_NOTE);
         } else if (MeetSubscriptionJob.TRANSCRIPT_FILE_GENERATED.equals(type)) {
+            JsonNode payload = readPayload(message);
             ingest.onArtifactGenerated(requiredName(payload, "transcript"), ArtifactKind.TRANSCRIPT);
         } else if (MeetSubscriptionJob.EXPIRATION_REMINDER.equals(type)) {
+            JsonNode payload = readPayload(message);
             subscriptions.renewFromEvent(payload);
         } else {
             log.debug("Ignoring unsupported Meet event type {}", type);
