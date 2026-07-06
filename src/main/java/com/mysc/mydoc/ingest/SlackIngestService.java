@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
@@ -38,6 +39,7 @@ public class SlackIngestService {
     private final MemberRepository members;
     private final SlackIngestLogRepository ingestLogs;
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbcTemplate;
     private final String defaultSpaceSlug;
     private final String documentBaseUrl;
 
@@ -49,6 +51,7 @@ public class SlackIngestService {
             MemberRepository members,
             SlackIngestLogRepository ingestLogs,
             ObjectMapper objectMapper,
+            JdbcTemplate jdbcTemplate,
             @Value("${mydoc.slack.default-space-slug}") String defaultSpaceSlug,
             @Value("${mydoc.document-base-url}") String documentBaseUrl
     ) {
@@ -59,6 +62,7 @@ public class SlackIngestService {
         this.members = members;
         this.ingestLogs = ingestLogs;
         this.objectMapper = objectMapper;
+        this.jdbcTemplate = jdbcTemplate;
         this.defaultSpaceSlug = defaultSpaceSlug;
         this.documentBaseUrl = documentBaseUrl;
     }
@@ -70,6 +74,7 @@ public class SlackIngestService {
         try {
             SlackThread thread = slackGateway.thread(channelId, messageTs);
             replyThreadTs = thread.threadTs();
+            lockThread(channelId, thread.threadTs());
             var existingLog = ingestLogs.findByChannelIdAndThreadTs(channelId, thread.threadTs());
             if (existingLog.isPresent()) {
                 safeReply(slackGateway, channelId, thread.threadTs(), documentUrl(existingLog.get().getDocumentId()));
@@ -81,6 +86,10 @@ public class SlackIngestService {
             rollback();
             safeReply(slackGateway, channelId, replyThreadTs, "요약에 실패했어요. 잠시 후 다시 이모지를 달아주세요.");
         }
+    }
+
+    private void lockThread(String channelId, String threadTs) {
+        jdbcTemplate.queryForList("SELECT pg_advisory_xact_lock(hashtext(?))", channelId + ":" + threadTs);
     }
 
     @Transactional

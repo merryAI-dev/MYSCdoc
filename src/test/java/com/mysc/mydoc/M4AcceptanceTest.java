@@ -66,8 +66,8 @@ class M4AcceptanceTest {
 
         @Bean
         @Primary
-        FakeThreadSummaryClient fakeThreadSummaryClient() {
-            return new FakeThreadSummaryClient();
+        FakeThreadSummaryClient fakeThreadSummaryClient(JdbcTemplate jdbcTemplate) {
+            return new FakeThreadSummaryClient(jdbcTemplate);
         }
     }
 
@@ -127,6 +127,7 @@ class M4AcceptanceTest {
 
         ingest.onReactionAdded("C1", "111.1", "U1");
 
+        assertThat(summaryClient.sawAdvisoryLock).isTrue();
         UUID documentId = jdbcTemplate.queryForObject("SELECT id FROM document WHERE title = '결정 문서'", UUID.class);
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, documentId)).isEqualTo("DRAFT");
         assertThat(jdbcTemplate.queryForObject("SELECT owner_id FROM document WHERE id = ?", UUID.class, documentId)).isEqualTo(ownerId);
@@ -281,16 +282,30 @@ class M4AcceptanceTest {
 
     static class FakeThreadSummaryClient implements ThreadSummaryClient {
         final List<String> responses = new ArrayList<>();
+        final JdbcTemplate jdbcTemplate;
         int index;
+        boolean sawAdvisoryLock;
+
+        FakeThreadSummaryClient(JdbcTemplate jdbcTemplate) {
+            this.jdbcTemplate = jdbcTemplate;
+        }
 
         @Override
         public String summarize(String systemPrompt, String userPrompt) {
+            sawAdvisoryLock = Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_locks
+                        WHERE locktype = 'advisory'
+                          AND pid = pg_backend_pid()
+                    )
+                    """, Boolean.class));
             return responses.get(index++);
         }
 
         void reset() {
             responses.clear();
             index = 0;
+            sawAdvisoryLock = false;
         }
     }
 }

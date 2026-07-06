@@ -24,6 +24,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 class SlackIngestServiceTest {
 
@@ -43,6 +44,7 @@ class SlackIngestServiceTest {
         SpaceRepository spaces = mock();
         MemberRepository members = mock();
         SlackIngestLogRepository logs = mock();
+        JdbcTemplate jdbcTemplate = mock();
         Space space = new Space("m4-space", "M4 Space");
         Member owner = new Member("owner@mysc.co.kr", "Owner", MemberRole.MEMBER);
         Document document = new Document(space, "저장 실패 문서", owner);
@@ -62,6 +64,7 @@ class SlackIngestServiceTest {
                 members,
                 logs,
                 new ObjectMapper(),
+                jdbcTemplate,
                 "m4-space",
                 "http://mydoc.test"
         );
