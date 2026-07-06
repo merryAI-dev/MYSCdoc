@@ -4,121 +4,134 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mydoc</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paper: #F7F6F2; --paper-dim: #EDEBE2; --ink: #26241F; --stone: #8A857A;
-    --injoo: #C0392B; --stale: #B08540; --line: #DDD9CE;
-    --serif: 'Noto Serif KR', serif;
+    --bg: #FFFFFF; --sidebar: #F7F7F5; --sidebar-hover: #EFEFEC; --soft: #F3F3F1;
+    --ink: #2F2F2D; --muted: #787774; --faint: #A8A8A5; --line: #E7E6E3;
+    --accent: #0F7B6C; --danger: #B42318; --warn: #9A6A12;
     --sans: -apple-system, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif;
     --mono: ui-monospace, 'SF Mono', monospace;
   }
   * { box-sizing: border-box; margin: 0; }
-  body { font-family: var(--sans); background: var(--paper); color: var(--ink); height: 100vh; overflow: hidden; }
+  body { font-family: var(--sans); background: var(--bg); color: var(--ink); height: 100vh; overflow: hidden; }
   button { font-family: inherit; cursor: pointer; }
   input { font-family: inherit; }
 
   /* ---------- login ---------- */
-  #login { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 14px; }
-  #login h1 { font-family: var(--serif); font-weight: 900; font-size: 42px; letter-spacing: -0.02em; }
-  #login p { color: var(--stone); font-size: 14px; }
-  #login input { width: 340px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-family: var(--mono); font-size: 13px; }
-  #login button { padding: 10px 28px; border: none; border-radius: 6px; background: var(--ink); color: var(--paper); font-size: 14px; }
-  #login .err { color: var(--injoo); font-size: 13px; min-height: 18px; }
+  #login { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 12px; padding: 24px; }
+  #login h1 { font-weight: 700; font-size: 40px; letter-spacing: 0; }
+  #login p { color: var(--muted); font-size: 14px; }
+  #login input { width: min(340px, 100%); padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-family: var(--mono); font-size: 13px; }
+  #login input:focus { outline: 2px solid rgba(15,123,108,.18); border-color: var(--accent); }
+  #login button { padding: 9px 20px; border: none; border-radius: 4px; background: var(--ink); color: #fff; font-size: 14px; }
+  #login .err { color: var(--danger); font-size: 13px; min-height: 18px; }
 
   /* ---------- shell ---------- */
   #app { display: none; height: 100vh; }
   #app.on { display: flex; }
-  aside { width: 264px; min-width: 264px; border-right: 1px solid var(--line); background: var(--paper-dim); display: flex; flex-direction: column; }
-  aside .brand { font-family: var(--serif); font-weight: 900; font-size: 20px; padding: 18px 16px 10px; }
-  aside .me { padding: 0 16px 12px; font-size: 12px; color: var(--stone); display: flex; justify-content: space-between; }
-  aside .me button { background: none; border: none; color: var(--stone); font-size: 12px; text-decoration: underline; padding: 0; }
-  #searchWrap { padding: 0 12px 10px; position: relative; }
-  #searchWrap input { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; }
-  #searchResults { position: absolute; left: 12px; right: 12px; top: 38px; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.08); z-index: 30; max-height: 320px; overflow: auto; display: none; }
-  #searchResults .hit { padding: 9px 11px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--paper-dim); }
-  #searchResults .hit:hover { background: var(--paper); }
-  #searchResults .hit .path { font-size: 11px; color: var(--stone); margin-bottom: 2px; }
+  aside { width: 284px; min-width: 284px; border-right: 1px solid var(--line); background: var(--sidebar); display: flex; flex-direction: column; }
+  aside .brand { font-weight: 650; font-size: 15px; padding: 14px 14px 8px; }
+  aside .me { padding: 0 14px 12px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  aside .me button { background: none; border: none; color: var(--muted); font-size: 12px; padding: 0; }
+  aside .me button:hover { color: var(--ink); }
+  #searchWrap { padding: 0 8px 8px; position: relative; }
+  #searchWrap input { width: 100%; padding: 7px 9px; border: 1px solid transparent; border-radius: 4px; background: var(--soft); font-size: 13px; }
+  #searchWrap input:focus { outline: none; border-color: var(--line); background: #fff; }
+  #searchResults { position: absolute; left: 8px; right: 8px; top: 36px; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 12px 30px rgba(0,0,0,.10); z-index: 30; max-height: 320px; overflow: auto; display: none; }
+  #searchResults .hit { padding: 9px 10px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--soft); }
+  #searchResults .hit:hover { background: var(--sidebar); }
+  #searchResults .hit .path { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   nav { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
-  .spaceRow { display: flex; align-items: center; justify-content: space-between; padding: 7px 8px 3px; font-size: 11px; font-weight: 700; color: var(--stone); letter-spacing: .06em; text-transform: uppercase; }
-  .docRow { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; cursor: pointer; color: var(--ink); }
-  .docRow:hover { background: rgba(0,0,0,.045); }
-  .docRow.active { background: rgba(0,0,0,.08); font-weight: 600; }
-  .docRow .st { font-size: 10px; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
-  .st.DRAFT { border: 1px dashed var(--stone); color: var(--stone); }
-  .st.STALE { background: var(--stale); color: #fff; }
-  .newDoc { margin: 6px 8px; padding: 7px 8px; width: calc(100% - 16px); text-align: left; background: none; border: none; border-radius: 6px; color: var(--stone); font-size: 13px; }
-  .newDoc:hover { background: rgba(0,0,0,.045); color: var(--ink); }
+  .spaceRow { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px; font-size: 11px; font-weight: 650; color: var(--muted); letter-spacing: 0; }
+  .docRow { display: flex; align-items: center; gap: 7px; padding: 5px 8px; min-height: 30px; border-radius: 4px; font-size: 14px; cursor: pointer; color: var(--ink); }
+  .docRow::before { content: "□"; color: var(--faint); font-size: 11px; flex-shrink: 0; }
+  .docRow:hover { background: var(--sidebar-hover); }
+  .docRow.active { background: #E9E9E6; font-weight: 550; }
+  .docRow .st { font-size: 10px; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; background: #fff; color: var(--muted); border: 1px solid var(--line); }
+  .st.DRAFT { color: var(--muted); }
+  .st.STALE { color: var(--warn); border-color: rgba(154,106,18,.28); background: rgba(154,106,18,.08); }
+  .newDoc { margin: 3px 0; padding: 6px 8px; width: 100%; text-align: left; background: none; border: none; border-radius: 4px; color: var(--muted); font-size: 13px; }
+  .newDoc:hover { background: var(--sidebar-hover); color: var(--ink); }
 
   /* ---------- main ---------- */
   main { flex: 1; overflow-y: auto; position: relative; }
-  #empty { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--stone); font-size: 15px; }
-  #docView { display: none; max-width: 780px; margin: 0 auto; padding: 44px 48px 120px; }
-  #staleBanner { display: none; margin-bottom: 20px; padding: 10px 14px; border: 1px solid var(--stale); border-radius: 6px; color: var(--stale); font-size: 13.5px; align-items: center; justify-content: space-between; }
-  #staleBanner button { border: 1px solid var(--stale); background: none; color: var(--stale); border-radius: 5px; padding: 4px 12px; font-size: 12.5px; }
+  #empty { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
+  #docView { display: none; max-width: 820px; margin: 0 auto; padding: 72px 72px 120px; }
+  #staleBanner { display: none; margin-bottom: 24px; padding: 9px 12px; border: 1px solid rgba(154,106,18,.28); border-radius: 4px; background: rgba(154,106,18,.06); color: var(--warn); font-size: 13px; align-items: center; justify-content: space-between; gap: 12px; }
+  #staleBanner button { border: 1px solid rgba(154,106,18,.35); background: #fff; color: var(--warn); border-radius: 4px; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
   .docHead { display: flex; align-items: flex-start; gap: 16px; }
-  #docTitle { font-family: var(--serif); font-weight: 900; font-size: 34px; line-height: 1.25; letter-spacing: -0.01em; flex: 1; outline: none; border-radius: 4px; }
-  #docTitle:focus { background: rgba(0,0,0,.04); }
+  #docTitle { font-weight: 700; font-size: 40px; line-height: 1.18; letter-spacing: 0; flex: 1; outline: none; border-radius: 4px; padding: 2px 0; }
+  #docTitle:empty::before { content: "제목 없음"; color: var(--faint); }
+  #docTitle:focus { background: var(--sidebar); }
 
   /* 검증 도장 — signature element */
-  #stamp { width: 62px; height: 62px; flex-shrink: 0; border: 2.5px solid var(--injoo); border-radius: 50%;
-    display: none; align-items: center; justify-content: center; transform: rotate(-8deg);
-    font-family: var(--serif); font-weight: 900; font-size: 17px; color: var(--injoo);
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.55' /%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .82 0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)'/%3E%3C/svg%3E");
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.55'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .82 0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)'/%3E%3C/svg%3E"); }
-  #stamp.on { display: flex; }
+  #stamp { flex-shrink: 0; display: none; align-items: center; justify-content: center; margin-top: 8px;
+    border: 1px solid rgba(15,123,108,.22); border-radius: 999px; padding: 3px 8px;
+    font-size: 12px; color: var(--accent); background: rgba(15,123,108,.07); }
+  #stamp.on { display: inline-flex; }
 
-  .metaRow { display: flex; align-items: center; gap: 14px; margin: 14px 0 6px; font-size: 12.5px; color: var(--stone); font-family: var(--mono); flex-wrap: wrap; }
+  .metaRow { display: flex; align-items: center; gap: 12px; margin: 12px 0 8px; font-size: 12px; color: var(--muted); font-family: var(--mono); flex-wrap: wrap; }
   #freshness { display: flex; align-items: center; gap: 6px; }
-  #freshBar { width: 72px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
-  #freshBar i { display: block; height: 100%; background: var(--ink); }
-  #freshBar i.warn { background: var(--stale); }
-  .actions { display: flex; gap: 8px; margin: 10px 0 26px; }
-  .actions button { padding: 6px 14px; font-size: 13px; border: 1px solid var(--line); background: #fff; border-radius: 6px; color: var(--ink); }
-  .actions button:hover { border-color: var(--stone); }
-  #saveState { margin-left: auto; font-size: 12px; color: var(--stone); align-self: center; font-family: var(--mono); }
+  #freshBar { width: 70px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  #freshBar i { display: block; height: 100%; background: var(--accent); }
+  #freshBar i.warn { background: var(--warn); }
+  .actions { display: flex; gap: 6px; margin: 14px 0 34px; flex-wrap: wrap; }
+  .actions button { padding: 5px 10px; font-size: 13px; border: 1px solid var(--line); background: #fff; border-radius: 4px; color: var(--ink); }
+  .actions button:hover { background: var(--sidebar); }
+  #saveState { margin-left: auto; font-size: 12px; color: var(--muted); align-self: center; font-family: var(--mono); }
 
   /* ---------- editor ---------- */
-  #editor .tiptap { outline: none; min-height: 320px; font-size: 16px; line-height: 1.75; }
-  #editor .tiptap > * + * { margin-top: .6em; }
-  #editor h1, #editor h2, #editor h3 { font-family: var(--serif); font-weight: 700; letter-spacing: -0.01em; margin-top: 1.2em; }
-  #editor h1 { font-size: 26px; } #editor h2 { font-size: 21px; } #editor h3 { font-size: 17px; }
-  #editor blockquote { border-left: 3px solid var(--line); padding-left: 14px; color: var(--stone); }
-  #editor pre { background: var(--ink); color: var(--paper); padding: 14px 16px; border-radius: 8px; font-family: var(--mono); font-size: 13.5px; overflow-x: auto; }
+  #editor .tiptap { outline: none; min-height: 360px; font-size: 16px; line-height: 1.72; }
+  #editor .tiptap > * + * { margin-top: .5em; }
+  #editor h1, #editor h2, #editor h3 { font-weight: 650; letter-spacing: 0; margin-top: 1.35em; }
+  #editor h1 { font-size: 28px; } #editor h2 { font-size: 22px; } #editor h3 { font-size: 18px; }
+  #editor p.is-editor-empty:first-child::before { color: var(--faint); content: "문서를 입력하세요."; float: left; height: 0; pointer-events: none; }
+  #editor blockquote { border-left: 3px solid var(--line); padding-left: 14px; color: var(--muted); }
+  #editor pre { background: var(--soft); color: var(--ink); padding: 14px 16px; border-radius: 4px; font-family: var(--mono); font-size: 13.5px; overflow-x: auto; }
   #editor code { font-family: var(--mono); font-size: .9em; }
   #editor ul, #editor ol { padding-left: 1.4em; }
   #editor table { border-collapse: collapse; width: 100%; }
   #editor td, #editor th { border: 1px solid var(--line); padding: 6px 10px; font-size: 14.5px; }
-  #editor th { background: var(--paper-dim); }
-  #editor img { max-width: 100%; border-radius: 6px; }
+  #editor th { background: var(--sidebar); }
+  #editor img { max-width: 100%; border-radius: 4px; }
 
   /* ---------- panels / toast ---------- */
-  #panel { position: fixed; right: 0; top: 0; bottom: 0; width: 380px; background: #fff; border-left: 1px solid var(--line);
-    box-shadow: -8px 0 30px rgba(0,0,0,.06); transform: translateX(100%); transition: transform .18s ease; z-index: 40;
+  #panel { position: fixed; right: 0; top: 0; bottom: 0; width: min(380px, 100vw); background: #fff; border-left: 1px solid var(--line);
+    box-shadow: -12px 0 30px rgba(0,0,0,.08); transform: translateX(100%); transition: transform .18s ease; z-index: 40;
     display: flex; flex-direction: column; }
   #panel.open { transform: none; }
-  #panel header { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--line); font-weight: 700; }
-  #panel header button { border: none; background: none; font-size: 18px; color: var(--stone); }
+  #panel header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); font-weight: 650; }
+  #panel header button { border: none; background: none; font-size: 18px; color: var(--muted); }
   #panelBody { flex: 1; overflow-y: auto; padding: 14px 18px; font-size: 13.5px; }
-  .finding { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
-  .finding .cat { font-size: 11px; font-family: var(--mono); color: var(--stone); margin-bottom: 6px; }
-  .finding .orig { text-decoration: line-through; color: var(--stone); }
+  .finding { border: 1px solid var(--line); border-radius: 4px; padding: 12px; margin-bottom: 10px; }
+  .finding .cat { font-size: 11px; font-family: var(--mono); color: var(--muted); margin-bottom: 6px; }
+  .finding .orig { text-decoration: line-through; color: var(--muted); }
   .finding .sugg { color: var(--ink); font-weight: 600; }
-  .finding .why { margin-top: 6px; color: var(--stone); font-size: 12.5px; }
-  .revRow { padding: 9px 2px; border-bottom: 1px solid var(--paper-dim); font-family: var(--mono); font-size: 12px; color: var(--stone); }
-  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper);
-    padding: 10px 18px; border-radius: 8px; font-size: 13.5px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
+  .finding .why { margin-top: 6px; color: var(--muted); font-size: 12.5px; }
+  .revRow { padding: 9px 2px; border-bottom: 1px solid var(--soft); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff;
+    padding: 9px 14px; border-radius: 4px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; }
   #toast.on { opacity: 1; }
   @media (prefers-reduced-motion: reduce) { #panel { transition: none; } }
-  @media (max-width: 720px) { aside { display: none; } #docView { padding: 24px 20px 80px; } }
+  @media (max-width: 720px) {
+    aside { width: 40vw; min-width: 172px; }
+    #docView { padding: 40px 22px 80px; }
+    #docTitle { font-size: 32px; }
+    .actions button { padding: 5px 8px; }
+  }
+  @media (max-width: 520px) {
+    #app.on { display: block; overflow: auto; }
+    aside { width: 100%; min-width: 0; max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
+    main { height: 62vh; }
+    #docView { padding: 28px 18px 72px; }
+  }
 </style>
 </head>
 <body>
 
 <div id="login">
   <h1>mydoc</h1>
-  <p>멤버 ID(UUID)로 들어가요. 관리자에게 발급받을 수 있어요.</p>
+  <p>사내 문서를 조용히 정리하는 공간</p>
   <input id="loginId" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false">
   <div class="err" id="loginErr"></div>
   <button id="loginBtn">들어가기</button>
@@ -338,7 +351,7 @@ $('btnArchive').onclick = async () => {
 }
 $('btnCorrect').onclick = async () => {
   openPanel('AI 교정')
-  $('panelBody').innerHTML = '<p style="color:var(--stone)">Gemini가 문서를 읽고 있어요…</p>'
+  $('panelBody').innerHTML = '<p style="color:var(--muted)">Gemini가 문서를 읽고 있어요…</p>'
   try {
     const r = await api('POST', `/api/documents/${currentDoc.id}/corrections`)
     $('panelBody').innerHTML = `<p style="margin-bottom:12px">문서 점수 <b>${r.score}</b> / 100</p>` +
@@ -346,15 +359,15 @@ $('btnCorrect').onclick = async () => {
         `<div class="finding"><div class="cat">${f.category} · 블록 ${f.blockPosition}</div>
          <div class="orig">${esc(f.original)}</div><div class="sugg">→ ${esc(f.suggestion)}</div>
          <div class="why">${esc(f.reason)}</div></div>`).join('')
-       : '<p style="color:var(--stone)">고칠 곳을 찾지 못했어요.</p>')
-  } catch (e) { $('panelBody').innerHTML = `<p style="color:var(--injoo)">${esc(e.message)}</p>` }
+       : '<p style="color:var(--muted)">고칠 곳을 찾지 못했어요.</p>')
+  } catch (e) { $('panelBody').innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>` }
 }
 $('btnRevs').onclick = async () => {
   openPanel('리비전 이력')
   const page = await api('GET', `/api/documents/${currentDoc.id}/revisions?page=0&size=30`).catch(e => (toast(e.message), { content: [] }))
   $('panelBody').innerHTML = page.content.map(r =>
     `<div class="revRow">${new Date(r.createdAt).toLocaleString('ko-KR')} · ${esc(r.editorName || '?')} · ${r.cause}</div>`
-  ).join('') || '<p style="color:var(--stone)">이력이 없어요.</p>'
+  ).join('') || '<p style="color:var(--muted)">이력이 없어요.</p>'
 }
 function openPanel(title) { $('panelTitle').textContent = title; $('panel').classList.add('open') }
 $('panelClose').onclick = () => $('panel').classList.remove('open')
@@ -371,7 +384,7 @@ $('search').addEventListener('input', e => {
     const box = $('searchResults')
     box.innerHTML = r.hits.map(h =>
       `<div class="hit" data-doc="${h.documentId}"><div class="path">${esc(h.headingPath || h.title)}</div>${esc(h.snippet || '').slice(0, 120)}</div>`
-    ).join('') || '<div class="hit" style="color:var(--stone)">결과가 없어요</div>'
+    ).join('') || '<div class="hit" style="color:var(--muted)">결과가 없어요</div>'
     box.style.display = 'block'
     box.querySelectorAll('[data-doc]').forEach(el => el.onclick = () => { box.style.display = 'none'; $('search').value = ''; openDoc(el.dataset.doc) })
   }, 250)
