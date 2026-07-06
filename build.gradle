@@ -11,6 +11,8 @@ ext['testcontainers.version'] = '2.0.5'
 ext['slackSdk.version'] = '1.49.0'
 ext['mcpSdk.version'] = '2.0.0'
 ext['springdoc.version'] = '2.5.0'
+ext['googlePubsub.version'] = '1.151.0'
+ext['googleAuth.version'] = '1.48.0'
 
 java {
     toolchain {
@@ -32,6 +34,8 @@ dependencies {
     implementation "com.slack.api:slack-api-client:${property('slackSdk.version')}"
     implementation "io.modelcontextprotocol.sdk:mcp-core:${property('mcpSdk.version')}"
     implementation "io.modelcontextprotocol.sdk:mcp-json-jackson2:${property('mcpSdk.version')}"
+    implementation "com.google.cloud:google-cloud-pubsub:${property('googlePubsub.version')}"
+    implementation "com.google.auth:google-auth-library-oauth2-http:${property('googleAuth.version')}"
     runtimeOnly 'org.postgresql:postgresql'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.testcontainers:testcontainers-postgresql'

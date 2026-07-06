@@ -16,6 +16,7 @@ public class JsonThreadSummaryPort implements ThreadSummaryPort {
             AI가 참고할 수 있는 결정 기록 문서를 만듭니다. 스레드에 없는 내용을 지어내지 마세요.
             결정이 명확하지 않으면 "결정 사항"에 "명시적 결정 없음 — 논의 요약"이라고 쓰세요.
             반드시 지정된 JSON 형식으로만 응답하세요.
+            코드펜스 없이 순수 JSON만 출력하세요.
             """;
 
     private final ObjectProvider<ThreadSummaryClient> client;
@@ -28,15 +29,18 @@ public class JsonThreadSummaryPort implements ThreadSummaryPort {
 
     @Override
     public ThreadSummary summarize(List<SlackMessage> messages) {
+        return summarize(SYSTEM_PROMPT, userPrompt(messages));
+    }
+
+    public ThreadSummary summarize(String systemPrompt, String userPrompt) {
         ThreadSummaryClient summaryClient = client.getIfAvailable();
         if (summaryClient == null) {
             throw new ValidationException("thread summary client is not configured");
         }
-        String userPrompt = userPrompt(messages);
         RuntimeException lastFailure = null;
         for (int attempt = 0; attempt < MAX_JSON_PARSE_ATTEMPTS; attempt++) {
             try {
-                return parse(summaryClient.summarize(SYSTEM_PROMPT, userPrompt));
+                return parse(summaryClient.summarize(systemPrompt, userPrompt));
             } catch (RuntimeException exception) {
                 lastFailure = exception;
             }
