@@ -9,12 +9,14 @@ import com.mysc.mydoc.domain.DocStatus;
 import com.mysc.mydoc.domain.Document;
 import com.mysc.mydoc.repository.BlockRepository;
 import com.mysc.mydoc.repository.ChunkRepository;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -25,35 +27,51 @@ public class ChunkingService {
     private final BlockRepository blocks;
     private final ChunkRepository chunks;
     private final ObjectProvider<EmbeddingPort> embeddings;
+    private final TransactionTemplate transactions;
 
     public ChunkingService(
             DocumentService documents,
             BlockRepository blocks,
             ChunkRepository chunks,
-            ObjectProvider<EmbeddingPort> embeddings
+            ObjectProvider<EmbeddingPort> embeddings,
+            PlatformTransactionManager transactionManager
     ) {
         this.documents = documents;
         this.blocks = blocks;
         this.chunks = chunks;
         this.embeddings = embeddings;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     public boolean isEnabled() {
         return embeddings.getIfAvailable() != null;
     }
 
-    @Transactional
     public void rechunk(UUID docId) {
-        // Lock the document so concurrent rechunks for the same doc serialize instead of
-        // interleaving delete/embed/save and leaving stale or duplicate chunks behind.
-        // ponytail: embedAll below still runs inside this transaction (holds a DB connection
-        // during the embedding call). Fine while embeddings are dormant; if the OpenAI path is
-        // enabled under load, move embedding computation before the write transaction.
+        EmbeddingPort embeddingPort = embeddings.getIfAvailable();
+        if (embeddingPort == null) {
+            transactions.executeWithoutResult(status -> {
+                documents.getLocked(docId);
+                chunks.deleteByDocumentId(docId);
+            });
+            return;
+        }
+
+        RechunkPlan plan = transactions.execute(status -> plan(docId));
+        if (plan == null) {
+            return;
+        }
+
+        List<float[]> vectors = embeddingPort.embedAll(plan.pieces().stream().map(Section::text).toList());
+        transactions.executeWithoutResult(status -> saveIfUnchanged(plan, vectors));
+    }
+
+    private RechunkPlan plan(UUID docId) {
         Document document = documents.getLocked(docId);
         List<Chunk> existing = chunks.findByDocumentIdOrderByCreatedAtAscIdAsc(docId);
         if (document.getStatus() == DocStatus.DRAFT) {
             chunks.deleteByDocumentId(docId);
-            return;
+            return null;
         }
         List<Section> sections = sections(document, blocks.findByDocumentIdOrderByPosition(docId));
         List<Section> pieces = new ArrayList<>();
@@ -64,13 +82,7 @@ public class ChunkingService {
         }
         if (pieces.isEmpty()) {
             chunks.deleteByDocumentId(docId);
-            return;
-        }
-
-        EmbeddingPort embeddingPort = embeddings.getIfAvailable();
-        if (embeddingPort == null) {
-            chunks.deleteByDocumentId(docId);
-            return;
+            return null;
         }
 
         // ponytail: chunk text is the content hash; add a stored hash only if this scan becomes hot.
@@ -78,14 +90,22 @@ public class ChunkingService {
             if (!sameHeadingPaths(pieces, existing)) {
                 replaceWithReusedEmbeddings(docId, pieces, existing);
             }
-            return;
+            return null;
         }
 
-        List<float[]> vectors = embeddingPort.embedAll(pieces.stream().map(Section::text).toList());
-        chunks.deleteByDocumentId(docId);
+        return new RechunkPlan(docId, document.getUpdatedAt(), pieces);
+    }
+
+    private void saveIfUnchanged(RechunkPlan plan, List<float[]> vectors) {
+        Document document = documents.getLocked(plan.docId());
+        if (document.getStatus() == DocStatus.DRAFT || !document.getUpdatedAt().equals(plan.documentUpdatedAt())) {
+            return;
+        }
+        chunks.deleteByDocumentId(plan.docId());
         List<Chunk> saved = new ArrayList<>();
-        for (int i = 0; i < pieces.size(); i++) {
-            saved.add(new Chunk(docId, pieces.get(i).headingPath(), pieces.get(i).text(), vectors.get(i)));
+        for (int i = 0; i < plan.pieces().size(); i++) {
+            Section piece = plan.pieces().get(i);
+            saved.add(new Chunk(plan.docId(), piece.headingPath(), piece.text(), vectors.get(i)));
         }
         chunks.saveAll(saved);
     }
@@ -184,4 +204,5 @@ public class ChunkingService {
     }
 
     private record Section(String headingPath, String text) {}
+    private record RechunkPlan(UUID docId, Instant documentUpdatedAt, List<Section> pieces) {}
 }

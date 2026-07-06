@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,6 +39,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -69,6 +71,7 @@ class M2AcceptanceTest {
     @TestConfiguration
     static class FakeEmbeddingConfig {
         static final AtomicInteger embedAllCalls = new AtomicInteger();
+        static final AtomicBoolean embedAllSawTransaction = new AtomicBoolean();
 
         @Bean
         @Primary
@@ -91,6 +94,7 @@ class M2AcceptanceTest {
                 @Override
                 public List<float[]> embedAll(List<String> texts) {
                     embedAllCalls.incrementAndGet();
+                    embedAllSawTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
                     return texts.stream().map(this::embed).toList();
                 }
             };
@@ -129,6 +133,7 @@ class M2AcceptanceTest {
     @BeforeEach
     void setup() {
         FakeEmbeddingConfig.embedAllCalls.set(0);
+        FakeEmbeddingConfig.embedAllSawTransaction.set(false);
         testSuffix = UUID.randomUUID().toString();
         adminId = UUID.randomUUID();
         jdbcTemplate.update("""
@@ -276,12 +281,30 @@ class M2AcceptanceTest {
     }
 
     @Test
+    void rechunk_callsEmbeddingOutsideTransaction() {
+        UUID documentId = createDocument("트랜잭션 분리 문서");
+        jdbcTemplate.update("UPDATE document SET status = 'ACTIVE', updated_at = now(), version = version + 1 WHERE id = ?", documentId);
+        blockRepository.save(new Block(
+                documentId,
+                0,
+                BlockType.PARAGRAPH,
+                objectMapper.valueToTree(Map.of("type", "paragraph", "content", List.of(Map.of("type", "text", "text", "embed outside tx")))),
+                new Provenance(SourceType.MANUAL, null, null)
+        ));
+
+        chunkingService.rechunk(documentId);
+
+        assertThat(FakeEmbeddingConfig.embedAllCalls).hasValue(1);
+        assertThat(FakeEmbeddingConfig.embedAllSawTransaction).isFalse();
+    }
+
+    @Test
     void rechunk_withoutEmbeddingPort_removesExistingChunks() throws Exception {
         UUID documentId = createDocument("임베딩 보존 문서");
         putBlocks(documentId, List.of(block("HEADING1", "보존"), block("PARAGRAPH", "preserved text")));
         waitForChunkCount(documentId, 1);
 
-        ChunkingService withoutEmbedding = new ChunkingService(documentService, blockRepository, chunkRepository, noEmbeddings());
+        ChunkingService withoutEmbedding = new ChunkingService(documentService, blockRepository, chunkRepository, noEmbeddings(), transactionManager);
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> withoutEmbedding.rechunk(documentId));
 
         waitForChunkCount(documentId, 0);
