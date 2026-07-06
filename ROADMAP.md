@@ -53,9 +53,74 @@ M0~M6 백엔드 + 정적 웹 UI까지 완료된 상태에서 남은 개발을 4�
 ## Phase 4 — 지능화 / 확장
 
 1. **AI 심화**: 문서 열람 시 관련 문서 추천(임베딩 인프라 재사용), 중복·모순 문서 감지 배치, 주간 지식 다이제스트 DM.
-2. **수집 소스 확장**: Google Docs/Drive 가져오기, 회의록(음성 전사) 파이프라인, 이메일 스레드.
+2. **회의록 수집 파이프라인** — 아래 상세 설계 참조. Tiro 경로는 웹훅+REST 조회로 Slack 수집 패턴 재사용이라 규모가 작아, 필요하면 Phase 2~3으로 당길 수 있음.
 3. **지식 공백 분석**: 검색 실패(결과 0) 쿼리 로깅 → "없는 문서" 신호 대시보드, 문서 조회 통계.
 4. **스케일**: chunk ivfflat 인덱스 재빌드 전략(현재 "little data" 상태로 생성됨 — 데이터 축적 후 lists 파라미터 튜닝), 검색 캐싱, 멀티 워크스페이스/테넌시.
+
+---
+
+## 상세 설계: 회의록 수집 (Tiro / Google Meet Gemini)
+
+두 경로 모두 Slack 수집(`ingest/SlackIngestService`)과 동일한 골격으로 합류시킨다:
+**외부 이벤트 → 본문 조회 → (필요 시 LLM 요약) → 블록 변환 → DRAFT 문서 생성 → owner 매핑 → 검증 도장 워크플로우.**
+공통 신설: `ingest/MeetingIngestService` + dedup 테이블(`meeting_ingest_log`, `slack_ingest_log` 패턴 — 외부 노트 ID unique 제약).
+`Provenance.sourceType`에 회의록용 enum 값 추가 필요(현 `SourceType` 확인 후 `MEETING` 계열 — 스펙 02 대조, 충돌 시 QUESTIONS.md 기록).
+
+### A. Tiro AX (권장 1순위 — 국내, 공식 웹훅/API 있음)
+
+Tiro는 개발자 연동 4종을 공식 제공한다: REST API(`https://api.tiro.ooo`, Bearer API 키,
+발급: `platform.tiro.ooo/dashboard/api-keys`), Webhook, MCP(`https://mcp.tiro.ooo/mcp`), CLI(`@theplato/tiro-cli`).
+문서: `docs.tiro.ooo` (api-overview / webhooks-overview / mcp-overview).
+
+파이프라인:
+1. Tiro 대시보드에서 웹훅 등록 → mydoc에 `POST /api/ingest/tiro` 신설.
+   - 검증: `Authorization: Bearer {secret}` 단순 비교 방식 — `HeaderAuthFilter.isValidInternalToken`의
+     `MessageDigest.isEqual` 상수시간 비교 패턴 재사용. 별도 시크릿 env(`TIRO_WEBHOOK_SECRET`).
+2. 웹훅 페이로드는 **메타데이터만** 담는다(`id`, `type`(예: note.created), `data.resourceType`
+   (Note/NoteSummary/NoteDocument), `data.resourceId`). 본문(전사/요약)은 페이로드에 없음 —
+   **REST API로 재조회**해야 한다(`TIRO_API_KEY` Bearer).
+3. 웹훅 재시도가 최대 5회 지수 백오프(~2시간)로 오므로, 핸들러는 **dedup 후 202 즉시 응답** +
+   비동기 처리(기존 `@Async` 패턴). 중복 이벤트는 `meeting_ingest_log` unique로 무시.
+4. NoteSummary(이미 요약됨)면 LLM 호출 없이 마크다운→블록 변환만
+   (`McpToolService.markdownToBlocks` 재사용 — 위치 이동/공용화). NoteDocument(원문)면 기존
+   `GoogleGenAiChatClient.summarize` 경유.
+5. owner 매핑: Tiro 노트의 작성자 email → `member.email` 조회, 없으면 시스템 멤버 fallback
+   (Slack ingest의 `owner(reactorUserId)` 패턴).
+6. 별개 운영 옵션: Tiro MCP를 사내 Claude에 mydoc MCP와 나란히 등록하면 "회의 컨텍스트 조회"는
+   Tiro가, "정제된 지식 조회"는 mydoc이 맡는 분업이 됨. 수집 파이프라인과 독립적으로 바로 가능.
+
+### B. Google Meet + Gemini 회의록
+
+전제: Google Workspace 요금제에 Gemini 기능 포함 + "나 대신 메모 작성(take notes for me)" 활성화.
+회의 종료 후 주최자 Drive("Meet Recordings" 폴더)에 Google Docs 회의록이 생성되고 Calendar 이벤트에 첨부된다.
+
+프로그래매틱 접근(모두 확인됨):
+- **회의록(smart notes)**: Meet REST API **v2beta** `conferenceRecords.smartNotes` get/list — 베타이므로
+  구현 시점에 GA 여부 재확인.
+- **전사(transcript)**: Meet REST API v2 `conferenceRecords.transcripts` → `docsDestination.document`
+  (= Google Docs `documentId`) / `exportUri`. 문장 단위는 `transcripts.entries`.
+- **이벤트 구독**: Google Workspace Events API로 conferenceRecords 이벤트 구독(Cloud Pub/Sub 필요).
+
+파이프라인 (경로 2개 중 선택):
+1. **경로 B-1 (푸시, 정석)**: Workspace Events API 구독 → Pub/Sub → mydoc 수신 엔드포인트 →
+   Meet API로 smartNotes/transcript 조회 → Docs API(`documents.get`)로 텍스트 추출 → 공통 골격 합류.
+   - 필요: GCP 프로젝트, Pub/Sub 토픽, 서비스 계정 + 도메인 전체 위임(DWD) 또는 조직 OAuth 앱.
+   - scopes: Meet readonly 계열 + `documents.readonly`(또는 `drive.readonly`).
+2. **경로 B-2 (폴링, 단순 — MVP 권장)**: Drive API `changes.list`로 주최자(또는 공용 계정)의
+   "Meet Recordings" 폴더 감시 → 새 Docs 발견 시 Docs API로 텍스트 추출 → 공통 골격 합류.
+   Pub/Sub 인프라 없이 `@Scheduled` 폴링으로 시작 가능.
+3. owner 매핑: Calendar 이벤트 주최자 email → member. 회의록 Docs가 **주최자 개인 Drive**에
+   생기는 점이 운영상 함정 — 공용 캘린더/공유 드라이브 정책을 먼저 정해야 함(조직 결정 사항).
+
+### 비교 요약
+
+| | Tiro | Google Meet Gemini |
+|---|---|---|
+| 이벤트 수신 | 공식 웹훅 (등록만 하면 됨) | Workspace Events+Pub/Sub 또는 Drive 폴링 |
+| 본문 조회 | REST API 1콜 | Meet API(beta) + Docs API |
+| 인프라 추가 | 없음 (엔드포인트 1개) | GCP 프로젝트/DWD/Pub/Sub (B-1 기준) |
+| 요약 품질 | Tiro가 이미 요약 제공 | Gemini notes 제공, 전사는 자체 요약 필요 |
+| 착수 난이도 | **낮음 — 먼저 구현** | 중간 (B-2 폴링으로 낮출 수 있음) |
 
 ---
 
