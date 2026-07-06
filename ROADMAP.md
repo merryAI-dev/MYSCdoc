@@ -91,6 +91,8 @@ Tiro는 개발자 연동 4종을 공식 제공한다: REST API(`https://api.tiro
 
 ### B. Google Meet + Gemini 회의록
 
+> **상세 스펙 확정됨**: `/Users/boram/mydoc-spec/11-ingest-meet.md` (M7). 이벤트 타입·API 버전·ack/nack 규칙·DB 마이그레이션·acceptance까지 명세돼 있으므로 구현은 그 문서를 따른다. 아래는 요약.
+
 전제: Google Workspace 요금제에 Gemini 기능 포함 + "나 대신 메모 작성(take notes for me)" 활성화.
 회의 종료 후 주최자 Drive("Meet Recordings" 폴더)에 Google Docs 회의록이 생성되고 Calendar 이벤트에 첨부된다.
 
