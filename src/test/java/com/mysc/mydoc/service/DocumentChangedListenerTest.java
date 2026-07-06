@@ -2,6 +2,7 @@ package com.mysc.mydoc.service;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class DocumentChangedListenerTest {
     @Test
-    void onDocumentChanged_coalescesRapidEventsForSameDocument() throws Exception {
+    void onDocumentChanged_coalescesRapidEventsForSameDocument() {
         ChunkingService chunkingService = mock(ChunkingService.class);
         when(chunkingService.isEnabled()).thenReturn(true);
         DocumentChangedListener listener = new DocumentChangedListener(chunkingService);
@@ -18,8 +19,8 @@ class DocumentChangedListenerTest {
 
         listener.onDocumentChanged(new DocumentChangedEvent(documentId));
         listener.onDocumentChanged(new DocumentChangedEvent(documentId));
-        Thread.sleep(150);
 
+        verify(chunkingService, timeout(1000).times(1)).rechunk(documentId);
         verify(chunkingService, times(1)).rechunk(documentId);
     }
 }

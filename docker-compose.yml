@@ -9,3 +9,51 @@ services:
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+  app:
+    image: eclipse-temurin:21-jdk
+    working_dir: /workspace
+    command: ./gradlew --no-daemon bootRun
+    volumes:
+      - .:/workspace
+      - gradle-cache:/root/.gradle
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/mydoc
+      DB_USERNAME: mydoc
+      DB_PASSWORD: changeme
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      COLLAB_JWT_SECRET: ${COLLAB_JWT_SECRET:-}
+      EDITING_PLANE_URL: http://editing-plane:8081
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SLACK_DEFAULT_SPACE_SLUG: ${SLACK_DEFAULT_SPACE_SLUG:-}
+      MYDOC_BASE_URL: ${MYDOC_BASE_URL:-http://localhost:8080}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+    ports: ["8080:8080"]
+    depends_on:
+      - postgres
+      - redis
+  editing-plane:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: sh -c "npm ci && npm start"
+    volumes:
+      - ./editing-plane:/workspace
+      - editing-plane-node-modules:/workspace/node_modules
+    environment:
+      PORT: 8081
+      DATABASE_URL: postgres://mydoc:changeme@postgres:5432/mydoc
+      REDIS_URL: redis://redis:6379
+      JAVA_BASE_URL: http://app:8080
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      COLLAB_JWT_SECRET: ${COLLAB_JWT_SECRET:-}
+      DEBOUNCE_MS: ${DEBOUNCE_MS:-5000}
+      DEBOUNCE_MAX_MS: ${DEBOUNCE_MAX_MS:-30000}
+    ports: ["8081:8081"]
+    depends_on:
+      - postgres
+      - redis
+      - app
+
+volumes:
+  gradle-cache:
+  editing-plane-node-modules:
