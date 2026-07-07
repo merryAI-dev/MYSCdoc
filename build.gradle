@@ -32,6 +32,7 @@ dependencies {
     implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${property('springdoc.version')}"
     implementation "com.slack.api:bolt-socket-mode:${property('slackSdk.version')}"
     implementation "com.slack.api:slack-api-client:${property('slackSdk.version')}"
+    runtimeOnly 'org.glassfish.tyrus.bundles:tyrus-standalone-client:1.20'
     implementation "io.modelcontextprotocol.sdk:mcp-core:${property('mcpSdk.version')}"
     implementation "io.modelcontextprotocol.sdk:mcp-json-jackson2:${property('mcpSdk.version')}"
     implementation "com.google.cloud:google-cloud-pubsub:${property('googlePubsub.version')}"
