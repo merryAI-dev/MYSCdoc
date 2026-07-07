@@ -140,7 +140,8 @@ public class DocumentService {
         if (document.getStatus() == DocStatus.DRAFT
                 && cause != ChangeCause.SLACK_INGEST
                 && cause != ChangeCause.MEETING_INGEST
-                && cause != ChangeCause.AI_SUGGESTION) {
+                && cause != ChangeCause.AI_SUGGESTION
+                && cause != ChangeCause.IMPORT) {
             document.activate();
         } else {
             document.rename(document.getTitle());

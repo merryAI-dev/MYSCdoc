@@ -252,6 +252,10 @@ async function loadNav() {
       if (created) { await loadNav(); openDoc(created.id) }
     }
     nav.appendChild(add)
+    const tiro = document.createElement('button')
+    tiro.className = 'newDoc'; tiro.textContent = '⇩ Tiro에서 가져오기'
+    tiro.onclick = () => openTiroPicker(space.id)
+    nav.appendChild(tiro)
   }
   if (me.role === 'ADMIN') {
     const add = document.createElement('button')
@@ -372,6 +376,49 @@ $('btnRevs').onclick = async () => {
 function openPanel(title) { $('panelTitle').textContent = title; $('panel').classList.add('open') }
 $('panelClose').onclick = () => $('panel').classList.remove('open')
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]))
+
+// ---------- Tiro 가져오기 ----------
+let tiroSearchTimer = null
+function openTiroPicker(spaceId) {
+  openPanel('Tiro에서 가져오기')
+  $('panelBody').innerHTML = `
+    <input id="tiroSearch" placeholder="회의 제목으로 검색…" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:4px;font-size:13px;margin-bottom:10px">
+    <div id="tiroList"></div>
+  `
+  const input = $('tiroSearch')
+  input.addEventListener('input', () => {
+    clearTimeout(tiroSearchTimer)
+    tiroSearchTimer = setTimeout(() => loadTiroNotes(input.value.trim(), spaceId), 300)
+  })
+  loadTiroNotes('', spaceId)
+}
+async function loadTiroNotes(keyword, spaceId) {
+  const list = $('tiroList')
+  list.innerHTML = '<p style="color:var(--muted)">불러오는 중…</p>'
+  let notes
+  try {
+    notes = await api('GET', `/api/integrations/tiro/notes${keyword ? '?keyword=' + encodeURIComponent(keyword) : ''}`)
+  } catch (e) { list.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; return }
+  if (!notes.length) { list.innerHTML = '<p style="color:var(--muted)">회의록이 없어요.</p>'; return }
+  list.innerHTML = notes.map(n => `
+    <div class="finding" data-guid="${n.guid}">
+      <div style="font-weight:600;margin-bottom:4px">${esc(n.title)}</div>
+      <div class="cat">${n.createdAt ? new Date(n.createdAt).toLocaleDateString('ko-KR') : ''}${n.recordingDurationSeconds ? ' · ' + Math.round(n.recordingDurationSeconds / 60) + '분' : ''}</div>
+      <button data-import="${n.guid}" style="margin-top:8px;padding:5px 10px;font-size:12.5px;border:1px solid var(--line);background:#fff;border-radius:4px">가져오기</button>
+    </div>
+  `).join('')
+  list.querySelectorAll('[data-import]').forEach(btn => btn.onclick = () => importTiroNote(btn.dataset.import, spaceId, btn))
+}
+async function importTiroNote(noteGuid, spaceId, btn) {
+  btn.disabled = true; btn.textContent = '가져오는 중…'
+  try {
+    const r = await api('POST', `/api/integrations/tiro/notes/${noteGuid}/import`, { spaceId })
+    $('panel').classList.remove('open')
+    toast('Tiro 회의록을 가져왔어요')
+    await loadNav()
+    openDoc(r.documentId)
+  } catch (e) { btn.disabled = false; btn.textContent = '가져오기'; toast(e.message) }
+}
 
 // ---------- search ----------
 let searchTimer = null

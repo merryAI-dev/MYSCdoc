@@ -25,6 +25,8 @@ mydoc:
     subscribed-user: ${MEET_SUBSCRIBED_USER:}
     pubsub-subscription: ${MEET_PUBSUB_SUBSCRIPTION:}
     default-space-slug: ${MEET_DEFAULT_SPACE_SLUG:}
+  tiro:
+    api-key: ${TIRO_API_KEY:}
   document-base-url: ${MYDOC_BASE_URL:http://localhost:8080}
   gemini:
     api-key: ${GEMINI_API_KEY:}
