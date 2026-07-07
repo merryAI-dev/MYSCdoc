@@ -4,13 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mysc.mydoc.common.ValidationException;
-import com.mysc.mydoc.ingest.ThreadSummaryClient;
 import com.mysc.mydoc.ingest.tiro.TiroIngestService;
 import com.mysc.mydoc.ingest.tiro.TiroNoteSummary;
+import com.mysc.mydoc.ingest.tiro.TiroTranscriptParagraph;
 import com.mysc.mydoc.ingest.tiro.TiroPort;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +46,8 @@ class M8AcceptanceTest {
     )
             .withDatabaseName("mydoc")
             .withUsername("mydoc")
-            .withPassword("changeme");
+            .withPassword("changeme")
+            .withStartupTimeout(Duration.ofMinutes(4));
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -62,12 +63,6 @@ class M8AcceptanceTest {
         FakeTiroPort fakeTiroPort() {
             return new FakeTiroPort();
         }
-
-        @Bean
-        @Primary
-        FakeSummaryClient fakeSummaryClient() {
-            return new FakeSummaryClient();
-        }
     }
 
     @Autowired
@@ -82,21 +77,23 @@ class M8AcceptanceTest {
     @Autowired
     FakeTiroPort tiro;
 
-    @Autowired
-    FakeSummaryClient summaryClient;
-
     UUID adminId;
+    UUID ownerId;
     UUID spaceId;
 
     @BeforeEach
     void setup() {
         tiro.reset();
-        summaryClient.reset();
         adminId = UUID.randomUUID();
+        ownerId = UUID.randomUUID();
         jdbcTemplate.update("""
                 INSERT INTO member (id, email, display_name, role, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """, adminId, "admin-m8@mysc.co.kr", "Admin M8", "ADMIN", Timestamp.from(Instant.now()));
+        jdbcTemplate.update("""
+                INSERT INTO member (id, email, display_name, role, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """, ownerId, "owner-m8@mysc.co.kr", "Owner M8", "MEMBER", Timestamp.from(Instant.now()));
         Map<String, Object> space = restTemplate.exchange(
                 "/api/spaces", HttpMethod.POST, entity(Map.of("slug", "m8-space", "name", "M8 Space"), adminId), Map.class
         ).getBody();
@@ -105,11 +102,35 @@ class M8AcceptanceTest {
 
     @Test
     void m8AcceptanceScenario() {
-        tiro.notes.put("note-1", new TiroNoteSummary("note-1", "회의: 계정 권한", "https://tiro.ooo/n/1", "2026-07-01T00:00:00Z", 600));
-        tiro.transcripts.put("note-1", "권한 사용자를 삭제하기로 했습니다.");
-        summaryClient.responses.add("""
-                {"title":"계정 권한 정리","sections":[{"heading":"결정 사항","paragraphs":["권한 사용자 항목을 삭제하기로 했어요."]}]}
-                """);
+        tiro.notes.put("note-1", new TiroNoteSummary(
+                "note-1",
+                "회의: 계정 권한",
+                "https://tiro.ooo/n/1",
+                "2026-07-01T00:00:00Z",
+                600,
+                List.of(new TiroNoteSummary.Collaborator("owner-m8@tiro", "Owner M8", "owner-m8@mysc.co.kr", "OWNER")),
+                List.of(new TiroNoteSummary.Participant("Owner M8", "owner-m8@mysc.co.kr"), new TiroNoteSummary.Participant("Guest", null)),
+                "2026-07-01T00:00:10Z",
+                "2026-07-01T00:10:10Z"
+        ));
+        tiro.paragraphs.put("note-1", List.of(
+                new TiroTranscriptParagraph(
+                        "p1",
+                        "2026-07-01T00:00:10Z",
+                        "2026-07-01T00:01:00Z",
+                        "권한 사용자를 삭제하기로 했습니다.",
+                        "### 권한 관리\n\n* 권한 사용자를 삭제합니다.",
+                        false
+                ),
+                new TiroTranscriptParagraph(
+                        "p2",
+                        "2026-07-01T00:01:00Z",
+                        "2026-07-01T00:02:00Z",
+                        "다중 선택 다운로드도 필요합니다.",
+                        "",
+                        false
+                )
+        ));
 
         // 1. 픽커 목록 (REST) — keyword 없이 호출
         ResponseEntity<List> listResponse = restTemplate.exchange(
@@ -125,17 +146,26 @@ class M8AcceptanceTest {
         UUID documentId = UUID.fromString((String) importResponse.getBody().get("documentId"));
 
         assertThat(jdbcTemplate.queryForObject("SELECT title FROM document WHERE id = ?", String.class, documentId))
-                .isEqualTo("계정 권한 정리");
+                .isEqualTo("회의: 계정 권한");
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM document WHERE id = ?", String.class, documentId))
                 .isEqualTo("DRAFT");
         assertThat(jdbcTemplate.queryForObject("SELECT owner_id FROM document WHERE id = ?", UUID.class, documentId))
-                .isEqualTo(adminId);
+                .isEqualTo(ownerId);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tiro_ingest_log WHERE note_guid = 'note-1'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbcTemplate.queryForList("SELECT type FROM block WHERE document_id = ? ORDER BY position", String.class, documentId))
-                .containsExactly("HEADING2", "PARAGRAPH", "PARAGRAPH");
-        assertThat(jdbcTemplate.queryForObject("SELECT content::text FROM block WHERE document_id = ? ORDER BY position DESC LIMIT 1", String.class, documentId))
-                .contains("출처: https://tiro.ooo/n/1");
+                .containsExactly("HEADING2", "PARAGRAPH", "PARAGRAPH", "PARAGRAPH", "PARAGRAPH", "PARAGRAPH",
+                        "HEADING2", "PARAGRAPH", "PARAGRAPH", "HEADING2", "PARAGRAPH");
+        String allBlocks = String.join("\n", jdbcTemplate.queryForList("SELECT content::text FROM block WHERE document_id = ? ORDER BY position", String.class, documentId));
+        assertThat(allBlocks)
+                .contains("작성자: Owner M8 <owner-m8@mysc.co.kr>")
+                .contains("참석자: Owner M8 <owner-m8@mysc.co.kr>, Guest")
+                .contains("녹음 시작: 2026-07-01T00:00:10Z")
+                .contains("길이: 10분")
+                .contains("출처: https://tiro.ooo/n/1")
+                .contains("[2026-07-01T00:00:10Z - 2026-07-01T00:01:00Z] 권한 사용자를 삭제하기로 했습니다.")
+                .contains("[2026-07-01T00:01:00Z - 2026-07-01T00:02:00Z] 다중 선택 다운로드도 필요합니다.")
+                .contains("권한 사용자를 삭제합니다.");
         assertThat(jdbcTemplate.queryForList("SELECT DISTINCT source_type FROM block WHERE document_id = ?", String.class, documentId))
                 .containsExactly("IMPORT");
 
@@ -144,11 +174,11 @@ class M8AcceptanceTest {
                 "/api/integrations/tiro/notes/note-1/import", HttpMethod.POST,
                 entity(Map.of("spaceId", spaceId.toString()), adminId), Map.class);
         assertThat(secondImport.getBody().get("documentId")).isEqualTo(documentId.toString());
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document WHERE title = '계정 권한 정리'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document WHERE title = '회의: 계정 권한'", Integer.class)).isEqualTo(1);
 
         // 4. 전사 없는 노트 — 실패해야 한다
-        tiro.notes.put("note-empty", new TiroNoteSummary("note-empty", "빈 회의", "https://tiro.ooo/n/2", null, null));
-        tiro.transcripts.put("note-empty", "");
+        tiro.notes.put("note-empty", new TiroNoteSummary("note-empty", "빈 회의", "https://tiro.ooo/n/2", null, null, List.of(), List.of(), null, null));
+        tiro.paragraphs.put("note-empty", List.of());
         assertThatThrownBy(() -> ingest.importNote("note-empty", spaceId, adminId)).isInstanceOf(ValidationException.class);
     }
 
@@ -160,11 +190,11 @@ class M8AcceptanceTest {
 
     static class FakeTiroPort implements TiroPort {
         final Map<String, TiroNoteSummary> notes = new HashMap<>();
-        final Map<String, String> transcripts = new HashMap<>();
+        final Map<String, List<TiroTranscriptParagraph>> paragraphs = new HashMap<>();
 
         void reset() {
             notes.clear();
-            transcripts.clear();
+            paragraphs.clear();
         }
 
         @Override
@@ -178,23 +208,8 @@ class M8AcceptanceTest {
         }
 
         @Override
-        public String getTranscriptText(String noteGuid) {
-            return transcripts.getOrDefault(noteGuid, "");
-        }
-    }
-
-    static class FakeSummaryClient implements ThreadSummaryClient {
-        final List<String> responses = new ArrayList<>();
-        int index;
-
-        void reset() {
-            responses.clear();
-            index = 0;
-        }
-
-        @Override
-        public String summarize(String systemPrompt, String userPrompt) {
-            return responses.get(index++);
+        public List<TiroTranscriptParagraph> getTranscriptParagraphs(String noteGuid) {
+            return paragraphs.getOrDefault(noteGuid, List.of());
         }
     }
 }

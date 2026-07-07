@@ -404,10 +404,16 @@ async function loadTiroNotes(keyword, spaceId) {
     <div class="finding" data-guid="${n.guid}">
       <div style="font-weight:600;margin-bottom:4px">${esc(n.title)}</div>
       <div class="cat">${n.createdAt ? new Date(n.createdAt).toLocaleDateString('ko-KR') : ''}${n.recordingDurationSeconds ? ' · ' + Math.round(n.recordingDurationSeconds / 60) + '분' : ''}</div>
+      ${tiroPeople(n) ? `<div class="cat">${esc(tiroPeople(n))}</div>` : ''}
       <button data-import="${n.guid}" style="margin-top:8px;padding:5px 10px;font-size:12.5px;border:1px solid var(--line);background:#fff;border-radius:4px">가져오기</button>
     </div>
   `).join('')
   list.querySelectorAll('[data-import]').forEach(btn => btn.onclick = () => importTiroNote(btn.dataset.import, spaceId, btn))
+}
+function tiroPeople(note) {
+  const owner = (note.collaborators || []).find(p => p.role === 'OWNER')
+  const participants = (note.participants || []).map(p => p.name || p.email).filter(Boolean).slice(0, 3).join(', ')
+  return [owner && `작성자 ${owner.name || owner.email}`, participants && `참석자 ${participants}`].filter(Boolean).join(' · ')
 }
 async function importTiroNote(noteGuid, spaceId, btn) {
   btn.disabled = true; btn.textContent = '가져오는 중…'

@@ -5,5 +5,5 @@ public interface TiroPort {
 
     TiroNoteSummary getNote(String noteGuid);
 
-    String getTranscriptText(String noteGuid);
+    java.util.List<TiroTranscriptParagraph> getTranscriptParagraphs(String noteGuid);
 }

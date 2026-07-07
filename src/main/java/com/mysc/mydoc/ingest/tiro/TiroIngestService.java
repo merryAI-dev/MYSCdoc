@@ -5,10 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.domain.BlockType;
 import com.mysc.mydoc.domain.ChangeCause;
+import com.mysc.mydoc.domain.Member;
 import com.mysc.mydoc.domain.SourceType;
 import com.mysc.mydoc.domain.TiroIngestLog;
-import com.mysc.mydoc.ingest.ThreadSummary;
-import com.mysc.mydoc.ingest.ThreadSummaryClient;
+import com.mysc.mydoc.ingest.SystemMemberInitializer;
+import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.TiroIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
@@ -23,31 +24,23 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class TiroIngestService {
-    private static final int MAX_JSON_PARSE_ATTEMPTS = 2; // 06-ingest-slack.md와 동일 재시도 규칙
-    private static final String SYSTEM_PROMPT = """
-            당신은 사내 문서 플랫폼의 기록 담당자입니다. Tiro 회의록 전사를 읽고, 나중에 다른 팀원이나
-            AI가 참고할 수 있는 결정 기록 문서를 만듭니다. 전사에 없는 내용을 지어내지 마세요.
-            결정이 명확하지 않으면 "결정 사항"에 "명시적 결정 없음 — 논의 요약"이라고 쓰세요.
-            반드시 지정된 JSON 형식으로만, 코드펜스 없이 순수 JSON만 출력하세요.
-            """;
-
     private final ObjectProvider<TiroPort> client;
-    private final ObjectProvider<ThreadSummaryClient> summaryClient;
     private final DocumentService documents;
     private final TiroIngestLogRepository ingestLogs;
+    private final MemberRepository members;
     private final ObjectMapper objectMapper;
 
     public TiroIngestService(
             ObjectProvider<TiroPort> client,
-            ObjectProvider<ThreadSummaryClient> summaryClient,
             DocumentService documents,
             TiroIngestLogRepository ingestLogs,
+            MemberRepository members,
             ObjectMapper objectMapper
     ) {
         this.client = client;
-        this.summaryClient = summaryClient;
         this.documents = documents;
         this.ingestLogs = ingestLogs;
+        this.members = members;
         this.objectMapper = objectMapper;
     }
 
@@ -63,97 +56,130 @@ public class TiroIngestService {
         }
 
         TiroNoteSummary note = client().getNote(noteGuid);
-        String transcript = client().getTranscriptText(noteGuid);
-        if (!StringUtils.hasText(transcript)) {
+        if (note == null) {
+            throw new ValidationException("Tiro 노트를 찾을 수 없어요.");
+        }
+        List<TiroTranscriptParagraph> transcript = client().getTranscriptParagraphs(noteGuid);
+        if (transcript.stream().noneMatch(paragraph -> StringUtils.hasText(paragraph.transcript()))) {
             throw new ValidationException("Tiro 노트에 전사 내용이 없어요.");
         }
 
-        ThreadSummary summary = summarize(transcript);
-        var document = documents.create(spaceId, summary.title(), memberId);
-        documents.replaceBlocks(document.getId(), blocks(summary, note), memberId, ChangeCause.IMPORT);
+        UUID ownerId = ownerId(note, memberId);
+        var document = documents.create(spaceId, note.title(), ownerId);
+        documents.replaceBlocks(document.getId(), blocks(note, transcript), ownerId, ChangeCause.IMPORT);
         ingestLogs.save(new TiroIngestLog(noteGuid, document.getId()));
         return document.getId();
     }
 
-    private ThreadSummary summarize(String transcript) {
-        ThreadSummaryClient chatClient = summaryClient.getIfAvailable();
-        if (chatClient == null) {
-            throw new ValidationException("summary client is not configured");
-        }
-        RuntimeException lastFailure = null;
-        for (int attempt = 0; attempt < MAX_JSON_PARSE_ATTEMPTS; attempt++) {
-            try {
-                return parse(chatClient.summarize(SYSTEM_PROMPT, userPrompt(transcript)));
-            } catch (RuntimeException exception) {
-                lastFailure = exception;
+    private UUID ownerId(TiroNoteSummary note, UUID importerId) {
+        String ownerEmail = ownerEmail(note);
+        if (StringUtils.hasText(ownerEmail)) {
+            var owner = members.findByEmail(ownerEmail);
+            if (owner.isPresent()) {
+                return owner.get().getId();
             }
         }
-        throw lastFailure;
+        if (importerId != null && members.existsById(importerId)) {
+            return importerId;
+        }
+        return members.findByEmail(SystemMemberInitializer.SYSTEM_MEMBER_EMAIL)
+                .map(Member::getId)
+                .orElseThrow(() -> new ValidationException("document owner is not available"));
     }
 
-    private String userPrompt(String transcript) {
-        return """
-                다음 회의 전사를 결정 기록 문서로 요약해 주세요.
-
-                <transcript>
-                %s
-                </transcript>
-
-                다음 JSON 형식으로만 응답하세요:
-                {"title": "문서 제목 (60자 이내)", "sections": [{"heading": "결정 사항", "paragraphs": ["..."]},
-                {"heading": "근거", "paragraphs": ["..."]}, {"heading": "후속 작업", "paragraphs": ["..."]}]}
-
-                규칙: 후속 작업이 없으면 해당 섹션을 빼세요. paragraphs 항목은 각각 1~3문장의 완결된 한국어 문장.
-                존댓말(해요체)로 쓰세요.
-                """.formatted(transcript);
+    private String ownerEmail(TiroNoteSummary note) {
+        if (note.collaborators() == null) {
+            return null;
+        }
+        return note.collaborators().stream()
+                .filter(collaborator -> "OWNER".equals(collaborator.role()))
+                .map(TiroNoteSummary.Collaborator::email)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(null);
     }
 
-    private ThreadSummary parse(String raw) {
-        if (!StringUtils.hasText(raw)) {
-            throw new ValidationException("summary response is not JSON");
-        }
-        int start = raw.indexOf('{');
-        int end = raw.lastIndexOf('}');
-        if (start < 0 || end < start) {
-            throw new ValidationException("summary response is not JSON");
-        }
-        try {
-            ThreadSummary summary = objectMapper.readValue(raw.substring(start, end + 1), ThreadSummary.class);
-            validate(summary);
-            return summary;
-        } catch (Exception exception) {
-            throw new ValidationException("summary response is not JSON");
-        }
-    }
-
-    private void validate(ThreadSummary summary) {
-        if (summary == null || !StringUtils.hasText(summary.title()) || summary.sections() == null || summary.sections().isEmpty()) {
-            throw new ValidationException("summary response is not JSON");
-        }
-        for (ThreadSummary.Section section : summary.sections()) {
-            if (section == null
-                    || !StringUtils.hasText(section.heading())
-                    || section.paragraphs() == null
-                    || section.paragraphs().isEmpty()
-                    || section.paragraphs().stream().anyMatch(paragraph -> !StringUtils.hasText(paragraph))) {
-                throw new ValidationException("summary response is not JSON");
-            }
-        }
-    }
-
-    private List<BlockPayload> blocks(ThreadSummary summary, TiroNoteSummary note) {
+    private List<BlockPayload> blocks(TiroNoteSummary note, List<TiroTranscriptParagraph> transcript) {
         List<TempBlock> blocks = new ArrayList<>();
-        for (ThreadSummary.Section section : summary.sections()) {
-            blocks.add(new TempBlock(BlockType.HEADING2, heading(section.heading())));
-            for (String paragraph : section.paragraphs()) {
-                blocks.add(new TempBlock(BlockType.PARAGRAPH, paragraph(paragraph)));
+        blocks.add(new TempBlock(BlockType.HEADING2, heading("회의 정보")));
+        addLine(blocks, "작성자", collaborators(note));
+        addLine(blocks, "참석자", participants(note));
+        addLine(blocks, "녹음 시작", note.recordingStartAt());
+        addLine(blocks, "길이", duration(note.recordingDurationSeconds()));
+        addLine(blocks, "출처", note.webUrl());
+
+        blocks.add(new TempBlock(BlockType.HEADING2, heading("전사 원문")));
+        for (TiroTranscriptParagraph paragraph : transcript) {
+            if (StringUtils.hasText(paragraph.transcript())) {
+                blocks.add(new TempBlock(BlockType.PARAGRAPH, paragraph(timeRange(paragraph) + " " + paragraph.transcript().trim())));
             }
         }
-        String sourceUrl = note.webUrl();
-        blocks.add(new TempBlock(BlockType.PARAGRAPH, paragraph("출처: " + sourceUrl)));
-        return blocks.stream()
-                .map(block -> new BlockPayload(block.type(), block.content(), SourceType.IMPORT, sourceUrl, note.guid()))
+
+        List<String> summaries = transcript.stream()
+                .map(TiroTranscriptParagraph::summary)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
                 .toList();
+        if (!summaries.isEmpty()) {
+            blocks.add(new TempBlock(BlockType.HEADING2, heading("Tiro 제공 요약")));
+            summaries.forEach(summary -> blocks.add(new TempBlock(BlockType.PARAGRAPH, paragraph(summary))));
+        }
+        return blocks.stream()
+                .map(block -> new BlockPayload(block.type(), block.content(), SourceType.IMPORT, note.webUrl(), note.guid()))
+                .toList();
+    }
+
+    private void addLine(List<TempBlock> blocks, String label, String value) {
+        if (StringUtils.hasText(value)) {
+            blocks.add(new TempBlock(BlockType.PARAGRAPH, paragraph(label + ": " + value)));
+        }
+    }
+
+    private String collaborators(TiroNoteSummary note) {
+        if (note.collaborators() == null || note.collaborators().isEmpty()) {
+            return "";
+        }
+        return note.collaborators().stream()
+                .map(collaborator -> person(collaborator.name(), collaborator.email()))
+                .filter(StringUtils::hasText)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+    }
+
+    private String participants(TiroNoteSummary note) {
+        if (note.participants() == null || note.participants().isEmpty()) {
+            return "";
+        }
+        return note.participants().stream()
+                .map(participant -> person(participant.name(), participant.email()))
+                .filter(StringUtils::hasText)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+    }
+
+    private String person(String name, String email) {
+        if (StringUtils.hasText(name) && StringUtils.hasText(email)) {
+            return name + " <" + email + ">";
+        }
+        return StringUtils.hasText(name) ? name : email;
+    }
+
+    private String duration(Integer seconds) {
+        if (seconds == null) {
+            return "";
+        }
+        int minutes = Math.max(1, Math.round(seconds / 60.0f));
+        return minutes + "분";
+    }
+
+    private String timeRange(TiroTranscriptParagraph paragraph) {
+        if (StringUtils.hasText(paragraph.timeFrom()) && StringUtils.hasText(paragraph.timeTo())) {
+            return "[" + paragraph.timeFrom() + " - " + paragraph.timeTo() + "]";
+        }
+        if (StringUtils.hasText(paragraph.timeFrom())) {
+            return "[" + paragraph.timeFrom() + "]";
+        }
+        return "";
     }
 
     private record TempBlock(BlockType type, JsonNode content) {}

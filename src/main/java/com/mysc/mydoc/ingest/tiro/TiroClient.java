@@ -45,20 +45,28 @@ public class TiroClient implements TiroPort {
     }
 
     @Override
-    public String getTranscriptText(String noteGuid) {
+    public List<TiroTranscriptParagraph> getTranscriptParagraphs(String noteGuid) {
         ParagraphListResponse response = restClient.get()
                 .uri("/notes/{guid}/paragraphs", noteGuid)
                 .retrieve()
                 .body(ParagraphListResponse.class);
         if (response == null || response.content() == null) {
-            return "";
+            return List.of();
         }
         return response.content().stream()
-                .map(Paragraph::transcript)
-                .filter(text -> text != null && text.content() != null)
-                .map(TextBlock::content)
-                .reduce((left, right) -> left + "\n" + right)
-                .orElse("");
+                .map(paragraph -> new TiroTranscriptParagraph(
+                        paragraph.uuid(),
+                        paragraph.timeFrom(),
+                        paragraph.timeTo(),
+                        content(paragraph.transcript()),
+                        content(paragraph.summary()),
+                        paragraph.locked()
+                ))
+                .toList();
+    }
+
+    private String content(TextBlock text) {
+        return text == null ? "" : text.content();
     }
 
     private String workspaceGuid() {
@@ -75,6 +83,6 @@ public class TiroClient implements TiroPort {
     private record WorkspaceMe(String guid) {}
     private record NoteListResponse(List<TiroNoteSummary> content) {}
     private record ParagraphListResponse(List<Paragraph> content) {}
-    private record Paragraph(TextBlock transcript) {}
+    private record Paragraph(String uuid, TextBlock transcript, TextBlock summary, String timeFrom, String timeTo, Boolean locked) {}
     private record TextBlock(String content) {}
 }
