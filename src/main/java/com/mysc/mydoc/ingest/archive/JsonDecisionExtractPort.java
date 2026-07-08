@@ -1,0 +1,207 @@
+package com.mysc.mydoc.ingest.archive;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mysc.mydoc.common.ValidationException;
+import com.mysc.mydoc.ingest.SlackMessage;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+/**
+ * Slack 스레드 → {@link DecisionExtract}. 프롬프트는 Gemini 2.5 Flash 기준
+ * PTCF(Persona-Task-Context-Format) 구조 + 부정 제약(negative constraint) +
+ * 스키마 내장(schema-in-prompt) + 1-shot 예시로 설계했다 (근거는 클래스 하단 주석).
+ */
+@Service
+public class JsonDecisionExtractPort implements DecisionExtractPort {
+    // Gemini는 파싱 실패 시 코드펜스를 다시 붙이는 등 같은 실수를 반복하는 경향이 있어
+    // JsonThreadSummaryPort와 동일하게 짧은 재시도만 둔다 (긴 재시도는 비용 대비 효과가 없음).
+    private static final int MAX_JSON_PARSE_ATTEMPTS = 2;
+
+    // ── Persona + 부정 제약 ──────────────────────────────────────────────
+    // "사내 문서 플랫폼의 기록 담당자"라는 페르소나는 JsonThreadSummaryPort와 동일하게 맞춰
+    // 같은 톤(해요체, 결정기록 문서 문체)의 산출물이 나오게 한다.
+    private static final String SYSTEM_PROMPT = """
+            당신은 사내 지식 플랫폼 mydoc의 기록 담당자(Technical Writer)입니다.
+            Slack 스레드 하나를 읽고 세 가지를 함께 추출합니다: (1) 스레드 요약,
+            (2) 팀이 실제로 내린 의사결정, (3) 대화 속에 암묵적으로 드러난 조직의 지식
+            (정책, 제약, 관행, 함정, 리스크 등 — 아무도 문서화하지 않았지만 다음에 같은
+            상황이 오면 반드시 알아야 할 것).
+
+            반드시 지켜야 할 규칙:
+            - 스레드에 실제로 없는 내용을 추론하거나 지어내지 마세요. 확실하지 않으면 그 필드를 비우거나 배열에서 빼세요.
+            - 발화자 이름을 문장에 그대로 옮기지 말고, "팀은", "담당자는"처럼 자연스러운 3인칭으로 정리하세요.
+            - 같은 개념을 가리키는 표현(그것, 이거, 저 기능, 위 이슈 등)은 스레드 맥락에서 실제 지칭 대상으로
+              바꿔 쓰세요(대명사를 그대로 남기지 마세요). 예: "그거 고쳐야 해요" → "결제 재시도 로직을 고쳐야 해요".
+            - 같은 대상은 스레드 전체에서 하나의 이름으로 통일하세요(1turn에서 "결제 API", 3turn에서
+              "그 API"로 불렸다면 둘 다 "결제 API"로 통일).
+            - 존댓말(해요체)로 쓰세요. 문장은 완결된 한국어 문장으로, 1~2문장 이내로 간결하게.
+            - 반드시 지정된 JSON 형식으로만, 코드펜스나 설명 없이 순수 JSON 하나만 출력하세요.
+            - 출력하기 전에 스스로 JSON 문법이 유효한지, 모든 필수 필드가 있는지 확인하세요.
+            """;
+
+    private final ObjectProvider<com.mysc.mydoc.ingest.ThreadSummaryClient> client;
+    private final ObjectMapper objectMapper;
+
+    public JsonDecisionExtractPort(
+            ObjectProvider<com.mysc.mydoc.ingest.ThreadSummaryClient> client,
+            ObjectMapper objectMapper
+    ) {
+        this.client = client;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    public Optional<DecisionExtract> extract(List<SlackMessage> messages) {
+        com.mysc.mydoc.ingest.ThreadSummaryClient summaryClient = client.getIfAvailable();
+        if (summaryClient == null) {
+            throw new ValidationException("thread summary client is not configured");
+        }
+        String userPrompt = userPrompt(messages);
+        RuntimeException lastFailure = null;
+        for (int attempt = 0; attempt < MAX_JSON_PARSE_ATTEMPTS; attempt++) {
+            try {
+                return parse(summaryClient.summarize(SYSTEM_PROMPT, userPrompt));
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
+            }
+        }
+        throw lastFailure;
+    }
+
+    private Optional<DecisionExtract> parse(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            throw new ValidationException("decision response is not JSON");
+        }
+        int start = raw.indexOf('{');
+        int end = raw.lastIndexOf('}');
+        if (start < 0 || end < start) {
+            throw new ValidationException("decision response is not JSON");
+        }
+        try {
+            JsonNode node = objectMapper.readTree(raw.substring(start, end + 1));
+            if (!node.path("hasDecision").asBoolean(false)) {
+                return Optional.empty();
+            }
+            DecisionExtract extract = objectMapper.treeToValue(node, DecisionExtract.class);
+            validate(extract);
+            return Optional.of(extract);
+        } catch (ValidationException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new ValidationException("decision response is not JSON");
+        }
+    }
+
+    private void validate(DecisionExtract extract) {
+        if (extract == null
+                || !StringUtils.hasText(extract.title())
+                || extract.summary() == null || extract.summary().isEmpty()
+                || extract.decisionPoints() == null || extract.decisionPoints().isEmpty()) {
+            throw new ValidationException("decision response is not JSON");
+        }
+        for (String line : extract.summary()) {
+            if (!StringUtils.hasText(line)) {
+                throw new ValidationException("decision response is not JSON");
+            }
+        }
+        for (DecisionExtract.DecisionPoint point : extract.decisionPoints()) {
+            if (point == null || !StringUtils.hasText(point.decision())) {
+                throw new ValidationException("decision response is not JSON");
+            }
+        }
+        // tacitKnowledge는 선택 사항 — 이번 스레드에 드러난 암묵지가 없을 수 있다.
+        if (extract.tacitKnowledge() != null) {
+            for (DecisionExtract.TacitKnowledge item : extract.tacitKnowledge()) {
+                if (item == null || !StringUtils.hasText(item.statement())) {
+                    throw new ValidationException("decision response is not JSON");
+                }
+                if (item.triples() != null) {
+                    for (DecisionExtract.Triple triple : item.triples()) {
+                        if (triple == null
+                                || !StringUtils.hasText(triple.subject())
+                                || !StringUtils.hasText(triple.predicate())
+                                || !StringUtils.hasText(triple.object())) {
+                            throw new ValidationException("decision response is not JSON");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Task + Context + Format(스키마 내장) + 1-shot 예시 ────────────────
+    private String userPrompt(List<SlackMessage> messages) {
+        String thread = messages.stream()
+                .map(message -> "[" + message.userName() + "] " + message.text())
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("");
+        return """
+                다음 Slack 스레드를 분석해 주세요.
+
+                <thread>
+                %s
+                </thread>
+
+                ## 1단계: 의사결정 여부 판별
+                이 스레드에 팀의 명시적 의사결정이 하나라도 있나요?
+                잡담, 단순 정보 공유, 결론 없는 질문-답변만 있으면 의사결정이 아닙니다.
+                "~하기로 했다", "~로 정했다", "다음부터는 ~하자"처럼 앞으로의 행동/기준을 확정하는
+                문장이 있어야 의사결정입니다. 없으면 아래 JSON만 출력하고 멈추세요:
+                {"hasDecision": false}
+
+                ## 2단계 (의사결정이 있을 때만): 아래 스키마로 추출
+                {
+                  "hasDecision": true,
+                  "title": "문서 제목, 60자 이내, 핵심 결정을 요약하는 명사구",
+                  "summary": ["스레드 전체 흐름을 3~5개의 완결된 문장으로 요약. 시간 순서대로."],
+                  "decisionPoints": [
+                    {
+                      "decision": "확정된 결정 사항 한 문장",
+                      "rationale": "그렇게 결정한 이유나 근거. 스레드에 없으면 빈 문자열.",
+                      "alternatives": ["검토했지만 채택하지 않은 대안. 없으면 빈 배열."],
+                      "owner": "이 결정의 실행/책임 주체로 스레드에서 지목된 사람이나 팀. 없으면 빈 문자열.",
+                      "condition": "이 결정이 적용되는 조건이나 예외(예: '공휴일이면 예외'). 없으면 빈 문자열."
+                    }
+                  ],
+                  "tacitKnowledge": [
+                    {
+                      "kind": "policy | constraint | workaround | gotcha | convention | risk 중 하나",
+                      "statement": "다음에 같은 상황이 오면 알아야 할 암묵지를 한 문장으로.",
+                      "triples": [
+                        {"subject": "개체(시스템/정책/사람/팀 등 스레드에서 실제로 지칭된 이름)",
+                         "predicate": "관계(동사구, 예: '차단한다', '담당한다', '전제로 한다')",
+                         "object": "개체 또는 값"}
+                      ]
+                    }
+                  ]
+                }
+
+                ## 규칙
+                - decisionPoints는 최소 1개 이상이어야 합니다(2단계에 도달했다면 이미 hasDecision=true이므로).
+                - tacitKnowledge는 실제로 스치듯 드러난 암묵지가 있을 때만 채우세요. 억지로 만들지 마세요.
+                  없으면 빈 배열 []로 두세요.
+                - triples의 subject/object는 스레드 전체에서 같은 대상을 가리키면 항상 같은 표현을 쓰세요
+                  (엔티티 일관성). 예: "결제 API"를 한 번은 "그 API", 한 번은 "결제 서버"라고 부르지 마세요.
+                - 한 문장에 트리플이 여러 개 나올 수 있습니다. 각각 별도 트리플로 쪼개세요.
+
+                ## 예시 (형식 참고용, 아래 내용은 실제 스레드와 무관)
+                입력 스레드: "[민지] 결제 재시도 로직 때문에 야간에 알림이 계속 와요"
+                "[태호] 3회 실패하면 재시도 끄는 걸로 하죠. 5회는 너무 많아요"
+                "[민지] 좋아요, 그럼 3회로 정하고 제가 반영할게요"
+                출력:
+                {"hasDecision": true, "title": "결제 재시도 3회 제한 확정",
+                 "summary": ["결제 재시도 로직이 야간에 반복 알림을 유발하는 문제가 논의됐어요.",
+                             "재시도 횟수를 3회로 제한하기로 확정했고, 민지가 반영을 맡기로 했어요."],
+                 "decisionPoints": [{"decision": "결제 재시도는 3회 실패 시 중단해요.",
+                   "rationale": "5회는 과도하다는 판단이 있었어요.", "alternatives": ["5회 재시도"],
+                   "owner": "민지", "condition": ""}],
+                 "tacitKnowledge": [{"kind": "constraint",
+                   "statement": "결제 재시도 로직은 실패 횟수 상한이 없으면 야간 알림 과다를 유발해요.",
+                   "triples": [{"subject": "결제 재시도 로직", "predicate": "유발한다", "object": "야간 알림 과다"}]}]}
+                """.formatted(thread);
+    }
+}
