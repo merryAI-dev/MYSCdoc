@@ -14,7 +14,7 @@
 
 | 구성요소 | GCP 서비스 | 비고 |
 |---|---|---|
-| Java 코어 (8080) | Cloud Run `mydoc-core` | 무상태 — 오토스케일 허용 |
+| Java 코어 (8080) | Cloud Run `mydoc-core` | **min=max=1 고정** — @Scheduled·Socket Mode·Pub/Sub pull이 오토스케일과 양립 불가 (DEPLOY-PLAN.md B2/B3) |
 | editing-plane (8081) | Cloud Run `mydoc-editing` | **min=max=1 고정** (아래 함정 1) |
 | Postgres + pgvector | Cloud SQL (PostgreSQL 16) | `vector` 확장 지원됨 |
 | Redis | Memorystore (Basic 1GB) | editing-plane 멀티 인스턴스 전까지는 선택 |

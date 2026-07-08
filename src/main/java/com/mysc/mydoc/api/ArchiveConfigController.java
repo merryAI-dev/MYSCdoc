@@ -4,6 +4,7 @@ import com.mysc.mydoc.common.ValidationException;
 import com.mysc.mydoc.domain.KnowledgeSetting;
 import com.mysc.mydoc.domain.SlackChannelConfig;
 import com.mysc.mydoc.ingest.SlackGateway;
+import com.mysc.mydoc.ingest.archive.DecisionExtractionJob;
 import com.mysc.mydoc.repository.KnowledgeSettingRepository;
 import com.mysc.mydoc.repository.SlackChannelConfigRepository;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,15 +30,18 @@ public class ArchiveConfigController {
     private final ObjectProvider<SlackGateway> slack;
     private final SlackChannelConfigRepository channelConfigs;
     private final KnowledgeSettingRepository settings;
+    private final DecisionExtractionJob decisionJob;
 
     public ArchiveConfigController(
             ObjectProvider<SlackGateway> slack,
             SlackChannelConfigRepository channelConfigs,
-            KnowledgeSettingRepository settings
+            KnowledgeSettingRepository settings,
+            DecisionExtractionJob decisionJob
     ) {
         this.slack = slack;
         this.channelConfigs = channelConfigs;
         this.settings = settings;
+        this.decisionJob = decisionJob;
     }
 
     public record ChannelResponse(String channelId, String channelName, boolean isPrivate, boolean archiveEnabled) {}
@@ -78,6 +83,18 @@ public class ArchiveConfigController {
         config.update(name, request.enabled());
         channelConfigs.save(config);
         return new ChannelResponse(config.getChannelId(), config.getChannelName(), false, config.isArchiveEnabled());
+    }
+
+    public record SyncResponse(boolean started, int examined, int documented) {}
+
+    /** 오후 6시를 기다리지 않고 지금 즉시 의사결정 추출을 돌린다 (수동 싱크). */
+    @PostMapping("/api/knowledge/sync")
+    SyncResponse sync() {
+        DecisionExtractionJob.SyncResult result = decisionJob.syncNow();
+        if (result.examined() < 0) {
+            return new SyncResponse(false, 0, 0); // 이미 실행 중
+        }
+        return new SyncResponse(true, result.examined(), result.documented());
     }
 
     @GetMapping("/api/knowledge/settings")

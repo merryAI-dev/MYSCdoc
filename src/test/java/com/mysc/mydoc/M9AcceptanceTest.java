@@ -152,6 +152,27 @@ class M9AcceptanceTest {
     }
 
     @Test
+    void manualSyncRunsExtractionNowAndReportsCounts() {
+        seedQuietThread("C_M9M", "1751800700.000100",
+                List.of("배포 브랜치 전략 정합시다", "trunk 기반으로 가죠", "네 trunk로 확정"));
+        llm.enqueue("""
+                {"hasDecision": true, "title": "브랜치 전략 결정",
+                 "summary": ["브랜치 전략을 trunk 기반으로 확정했어요."],
+                 "decisionPoints": [{"decision": "trunk 기반 브랜치 전략을 써요.",
+                   "rationale": "", "alternatives": [], "owner": "", "condition": ""}],
+                 "tacitKnowledge": []}
+                """);
+
+        ResponseEntity<Map> sync = restTemplate.exchange(
+                "/api/knowledge/sync", HttpMethod.POST, entity(null), Map.class);
+        assertThat(sync.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sync.getBody().get("started")).isEqualTo(true);
+        assertThat(sync.getBody().get("examined")).isEqualTo(1);
+        assertThat(sync.getBody().get("documented")).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM document WHERE title = '브랜치 전략 결정'")).isEqualTo(1);
+    }
+
+    @Test
     void quietDecisionThreadBecomesDraftDocumentAndUpdatesWhileDraft() {
         String channel = "C_M9B";
         String root = "1751800100.000100";

@@ -87,28 +87,53 @@ public class DecisionExtractionJob {
         this.defaultSpaceSlug = defaultSpaceSlug;
     }
 
+    /** 처리한 스레드 수와 그중 새로/갱신 문서화된 수. */
+    public record SyncResult(int examined, int documented) {}
+
+    // 스케줄과 수동 싱크가 겹치거나 버튼을 연타해도 한 번에 하나만 돌게 한다 (인스턴스 내).
+    // 인스턴스가 여러 개면 DB 락이 필요한데, 이 잡은 배포상 단일 인스턴스로 고정한다(DEPLOY.md).
+    private final java.util.concurrent.atomic.AtomicBoolean running = new java.util.concurrent.atomic.AtomicBoolean();
+
     // 기본: 매일 오후 6시(KST) — 하루치 논의를 퇴근 무렵에 한 번에 문서화한다.
     @Scheduled(cron = "${mydoc.slack.decision-cron:0 0 18 * * *}", zone = "Asia/Seoul")
     public void run() {
+        syncNow();
+    }
+
+    /** 지금 즉시 실행 (수동 싱크). 이미 실행 중이면 아무 것도 하지 않고 examined=-1 을 돌려준다. */
+    public SyncResult syncNow() {
         if (!StringUtils.hasText(defaultSpaceSlug)) {
-            return;
+            return new SyncResult(0, 0);
         }
-        var setting = settings.findById(KnowledgeSetting.SINGLETON_ID);
-        int quietMinutes = setting.map(KnowledgeSetting::getQuietMinutes).orElse(DEFAULT_QUIET_MINUTES);
-        int minMessages = setting.map(KnowledgeSetting::getMinMessages).orElse(DEFAULT_MIN_MESSAGES);
-        for (QuietThread thread : archives.findQuietThreads(minMessages, Instant.now().minus(Duration.ofMinutes(quietMinutes)))) {
-            try {
-                process(thread);
-            } catch (RuntimeException exception) {
-                log.warn("Decision extraction failed for {}:{}", thread.getChannelId(), thread.getThreadTs(), exception);
+        if (!running.compareAndSet(false, true)) {
+            return new SyncResult(-1, 0); // 이미 실행 중
+        }
+        try {
+            var setting = settings.findById(KnowledgeSetting.SINGLETON_ID);
+            int quietMinutes = setting.map(KnowledgeSetting::getQuietMinutes).orElse(DEFAULT_QUIET_MINUTES);
+            int minMessages = setting.map(KnowledgeSetting::getMinMessages).orElse(DEFAULT_MIN_MESSAGES);
+            int examined = 0, documented = 0;
+            for (QuietThread thread : archives.findQuietThreads(minMessages, Instant.now().minus(Duration.ofMinutes(quietMinutes)))) {
+                try {
+                    if (process(thread)) {
+                        documented++;
+                    }
+                    examined++;
+                } catch (RuntimeException exception) {
+                    log.warn("Decision extraction failed for {}:{}", thread.getChannelId(), thread.getThreadTs(), exception);
+                }
             }
+            return new SyncResult(examined, documented);
+        } finally {
+            running.set(false);
         }
     }
 
-    void process(QuietThread thread) {
+    /** 문서를 새로 만들었거나 갱신했으면 true (의사결정 없음/스킵이면 false). */
+    boolean process(QuietThread thread) {
         var existing = decisions.findByChannelIdAndThreadTs(thread.getChannelId(), thread.getThreadTs());
         if (existing.isPresent() && existing.get().getLastTs().equals(thread.getLastTs())) {
-            return; // 마지막 판별 이후 새 메시지 없음 — LLM 호출 생략
+            return false; // 마지막 판별 이후 새 메시지 없음 — LLM 호출 생략
         }
         List<SlackMessage> messages = archives
                 .findByChannelIdAndThreadTsOrderByTs(thread.getChannelId(), thread.getThreadTs())
@@ -118,6 +143,7 @@ public class DecisionExtractionJob {
         // LLM 호출은 트랜잭션 밖에서 (M2 rechunk와 같은 원칙)
         Optional<DecisionExtract> decision = extractor.extract(messages);
         tx.executeWithoutResult(status -> persist(thread, decision));
+        return decision.isPresent();
     }
 
     private void persist(QuietThread thread, Optional<DecisionExtract> decision) {
