@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mydoc — 지식그래프</title>
+<style>
+  :root {
+    --bg: #FFFFFF; --sidebar: #F7F7F5; --sidebar-hover: #EFEFEC; --soft: #F3F3F1;
+    --line: #E9E9E7; --ink: #37352F; --dim: #787774; --accent: #2E75CC;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: ui-sans-serif, -apple-system, "Apple SD Gothic Neo", "Pretendard", sans-serif;
+         color: var(--ink); background: var(--bg); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header a { color: var(--dim); text-decoration: none; font-size: 14px; }
+  header a:hover { color: var(--ink); }
+  header h1 { font-size: 16px; font-weight: 700; }
+  #q { flex: 1; max-width: 420px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px;
+       background: var(--sidebar); font-size: 14px; outline: none; }
+  #q:focus { background: var(--bg); border-color: var(--accent); }
+  #count { font-size: 12px; color: var(--dim); }
+  #legend { display: flex; gap: 10px; font-size: 12px; color: var(--dim); flex-wrap: wrap; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  main { flex: 1; position: relative; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #detail { position: absolute; right: 16px; top: 16px; width: 320px; background: var(--bg);
+            border: 1px solid var(--line); border-radius: 8px; padding: 14px; font-size: 13px;
+            box-shadow: 0 4px 16px rgba(0,0,0,.06); display: none; }
+  #detail .kind { font-size: 11px; color: var(--accent); font-weight: 600; text-transform: uppercase; }
+  #detail .triple { margin: 6px 0; color: var(--dim); }
+  #detail .stmt { margin-top: 6px; line-height: 1.5; }
+  #emptyMsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+              color: var(--dim); font-size: 14px; pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">← mydoc</a>
+  <h1>지식그래프</h1>
+  <input id="q" placeholder="검색 (BM25) — 예: 배포, 결제, 알림…">
+  <span id="count"></span>
+  <span id="legend"></span>
+</header>
+<main>
+  <canvas id="cv"></canvas>
+  <div id="detail"></div>
+  <div id="emptyMsg" style="display:none">아직 쌓인 지식 트리플이 없어요. Slack 논의가 수집되면 여기에 나타나요.</div>
+</main>
+<script>
+const memberId = localStorage.getItem('mydoc.memberId') || ''
+const KIND_COLORS = {
+  decision: '#2E75CC', policy: '#9065B0', constraint: '#D9730D',
+  workaround: '#448361', gotcha: '#D44C47', convention: '#337EA9', risk: '#C14C8A',
+}
+const kindColor = k => KIND_COLORS[k] || '#787774'
+
+const cv = document.getElementById('cv')
+const ctx = cv.getContext('2d')
+let nodes = [], edges = [], dragging = null, hoverEdge = null, hoverNode = null
+
+function resize() {
+  cv.width = cv.clientWidth * devicePixelRatio
+  cv.height = cv.clientHeight * devicePixelRatio
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+}
+window.addEventListener('resize', resize)
+
+async function load(q) {
+  const res = await fetch('/api/knowledge/graph?limit=60' + (q ? '&q=' + encodeURIComponent(q) : ''),
+      { headers: { 'X-Member-Id': memberId } })
+  if (!res.ok) return
+  const graph = await res.json()
+  const w = cv.clientWidth, h = cv.clientHeight
+  const prev = new Map(nodes.map(n => [n.id, n]))
+  nodes = graph.nodes.map(n => {
+    const kept = prev.get(n.id)
+    return { id: n.id, degree: n.degree,
+             x: kept ? kept.x : w / 2 + (Math.random() - .5) * w * .6,
+             y: kept ? kept.y : h / 2 + (Math.random() - .5) * h * .6,
+             vx: 0, vy: 0 }
+  })
+  const byId = new Map(nodes.map(n => [n.id, n]))
+  edges = graph.edges.map(e => ({ ...e, a: byId.get(e.source), b: byId.get(e.target) }))
+  document.getElementById('count').textContent = nodes.length + '개 개체 · ' + edges.length + '개 관계'
+  document.getElementById('emptyMsg').style.display = edges.length ? 'none' : 'flex'
+  const kinds = [...new Set(edges.map(e => e.kind))]
+  document.getElementById('legend').innerHTML = kinds.map(k =>
+      '<span><span class="dot" style="background:' + kindColor(k) + '"></span>' + k + '</span>').join('')
+}
+
+// ---- force-directed layout ----
+// 반발력(쿨롱): F = K_R / d²  — 모든 노드 쌍이 서로 밀어낸다
+// 스프링(훅):   F = K_S · (d − L)  — 간선으로 연결된 노드는 자연길이 L로 당긴다/민다
+// 중심력:       F = K_C · (중심까지의 벡터)  — 그래프가 화면 밖으로 흩어지지 않게
+// 오일러 적분 + 감쇠(DAMP)로 수렴시킨다
+const K_R = 6000, K_S = 0.02, L = 140, K_C = 0.015, DAMP = 0.85
+function step() {
+  const w = cv.clientWidth, h = cv.clientHeight
+  for (const n of nodes) { n.fx = 0; n.fy = 0 }
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j]
+      let dx = a.x - b.x, dy = a.y - b.y
+      let d2 = dx * dx + dy * dy || 1, d = Math.sqrt(d2)
+      const f = K_R / d2
+      dx /= d; dy /= d
+      a.fx += f * dx; a.fy += f * dy
+      b.fx -= f * dx; b.fy -= f * dy
+    }
+  }
+  for (const e of edges) {
+    if (!e.a || !e.b || e.a === e.b) continue
+    let dx = e.b.x - e.a.x, dy = e.b.y - e.a.y
+    const d = Math.sqrt(dx * dx + dy * dy) || 1
+    const f = K_S * (d - L)
+    dx /= d; dy /= d
+    e.a.fx += f * dx; e.a.fy += f * dy
+    e.b.fx -= f * dx; e.b.fy -= f * dy
+  }
+  for (const n of nodes) {
+    n.fx += K_C * (w / 2 - n.x); n.fy += K_C * (h / 2 - n.y)
+    if (n === dragging) continue
+    n.vx = (n.vx + n.fx) * DAMP; n.vy = (n.vy + n.fy) * DAMP
+    n.x += n.vx; n.y += n.vy
+  }
+}
+
+function radius(n) { return 6 + 3 * Math.sqrt(n.degree) }
+
+function draw() {
+  const w = cv.clientWidth, h = cv.clientHeight
+  ctx.clearRect(0, 0, w, h)
+  ctx.font = '11px sans-serif'
+  for (const e of edges) {
+    if (!e.a || !e.b) continue
+    ctx.strokeStyle = e === hoverEdge ? kindColor(e.kind) : '#E3E3E0'
+    ctx.lineWidth = e === hoverEdge ? 2 : 1
+    ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); ctx.stroke()
+    const mx = (e.a.x + e.b.x) / 2, my = (e.a.y + e.b.y) / 2
+    ctx.fillStyle = e === hoverEdge ? kindColor(e.kind) : '#B5B5B0'
+    ctx.fillText(e.predicate, mx + 4, my - 4)
+  }
+  for (const n of nodes) {
+    const r = radius(n)
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
+    ctx.fillStyle = n === hoverNode ? '#2E75CC' : '#37352F'
+    ctx.fill()
+    ctx.fillStyle = '#37352F'
+    ctx.font = n === hoverNode ? 'bold 12px sans-serif' : '12px sans-serif'
+    ctx.fillText(n.id, n.x + r + 4, n.y + 4)
+  }
+}
+
+function frame() { step(); draw(); requestAnimationFrame(frame) }
+
+function pick(x, y) {
+  for (const n of nodes) {
+    const dx = n.x - x, dy = n.y - y
+    if (dx * dx + dy * dy <= Math.pow(radius(n) + 4, 2)) return { node: n }
+  }
+  for (const e of edges) {
+    if (!e.a || !e.b) continue
+    const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y
+    const len2 = dx * dx + dy * dy || 1
+    const t = Math.max(0, Math.min(1, ((x - e.a.x) * dx + (y - e.a.y) * dy) / len2))
+    const px = e.a.x + t * dx - x, py = e.a.y + t * dy - y
+    if (px * px + py * py <= 36) return { edge: e }
+  }
+  return {}
+}
+
+cv.addEventListener('mousedown', ev => {
+  const hit = pick(ev.offsetX, ev.offsetY)
+  if (hit.node) { dragging = hit.node; cv.style.cursor = 'grabbing' }
+})
+cv.addEventListener('mousemove', ev => {
+  if (dragging) { dragging.x = ev.offsetX; dragging.y = ev.offsetY; dragging.vx = 0; dragging.vy = 0; return }
+  const hit = pick(ev.offsetX, ev.offsetY)
+  hoverNode = hit.node || null
+  hoverEdge = hit.edge || null
+  cv.style.cursor = (hoverNode || hoverEdge) ? 'pointer' : 'grab'
+  const detail = document.getElementById('detail')
+  if (hoverEdge) {
+    detail.style.display = 'block'
+    detail.innerHTML = '<div class="kind">' + hoverEdge.kind + '</div>'
+        + '<div class="triple">' + hoverEdge.source + ' — ' + hoverEdge.predicate + ' — ' + hoverEdge.target + '</div>'
+        + '<div class="stmt">' + hoverEdge.statement + '</div>'
+  } else if (!hoverNode) {
+    detail.style.display = 'none'
+  }
+})
+cv.addEventListener('mouseup', () => { dragging = null; cv.style.cursor = 'grab' })
+
+let debounce
+document.getElementById('q').addEventListener('input', ev => {
+  clearTimeout(debounce)
+  debounce = setTimeout(() => load(ev.target.value.trim()), 300)
+})
+
+resize()
+load('')
+frame()
+</script>
+</body>
+</html>

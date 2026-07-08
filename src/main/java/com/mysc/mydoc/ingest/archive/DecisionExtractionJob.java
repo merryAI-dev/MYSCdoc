@@ -6,11 +6,13 @@ import com.mysc.mydoc.common.NotFoundException;
 import com.mysc.mydoc.domain.BlockType;
 import com.mysc.mydoc.domain.ChangeCause;
 import com.mysc.mydoc.domain.DocStatus;
+import com.mysc.mydoc.domain.KnowledgeTriple;
 import com.mysc.mydoc.domain.SlackDecisionLog;
 import com.mysc.mydoc.domain.SourceType;
 import com.mysc.mydoc.ingest.SlackMessage;
 import com.mysc.mydoc.ingest.SystemMemberInitializer;
 import com.mysc.mydoc.repository.DocumentRepository;
+import com.mysc.mydoc.repository.KnowledgeTripleRepository;
 import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.SlackArchiveMessageRepository;
 import com.mysc.mydoc.repository.SlackArchiveMessageRepository.QuietThread;
@@ -48,6 +50,7 @@ public class DecisionExtractionJob {
     private final DecisionExtractPort extractor;
     private final DocumentService documents;
     private final DocumentRepository documentRepository;
+    private final KnowledgeTripleRepository triples;
     private final SpaceRepository spaces;
     private final MemberRepository members;
     private final ObjectMapper objectMapper;
@@ -60,6 +63,7 @@ public class DecisionExtractionJob {
             DecisionExtractPort extractor,
             DocumentService documents,
             DocumentRepository documentRepository,
+            KnowledgeTripleRepository triples,
             SpaceRepository spaces,
             MemberRepository members,
             ObjectMapper objectMapper,
@@ -71,6 +75,7 @@ public class DecisionExtractionJob {
         this.extractor = extractor;
         this.documents = documents;
         this.documentRepository = documentRepository;
+        this.triples = triples;
         this.spaces = spaces;
         this.members = members;
         this.objectMapper = objectMapper;
@@ -120,17 +125,50 @@ public class DecisionExtractionJob {
                 var document = documents.create(space.getId(), decision.get().title(), systemMemberId);
                 documents.replaceBlocks(document.getId(), blocks(decision.get(), thread), systemMemberId, ChangeCause.SLACK_INGEST);
                 decisionLog.linkDocument(document.getId());
+                replaceTriples(document.getId(), decision.get(), thread);
             } else {
                 // 스레드가 이어지면 DRAFT 문서만 갱신한다. 사람이 이미 검증한(ACTIVE) 문서는 덮어쓰지 않는다.
                 UUID documentId = decisionLog.getDocumentId();
                 documentRepository.findById(documentId)
                         .filter(document -> document.getStatus() == DocStatus.DRAFT)
-                        .ifPresent(document ->
-                                documents.replaceBlocks(documentId, blocks(decision.get(), thread), systemMemberId, ChangeCause.SLACK_INGEST));
+                        .ifPresent(document -> {
+                            documents.replaceBlocks(documentId, blocks(decision.get(), thread), systemMemberId, ChangeCause.SLACK_INGEST);
+                            replaceTriples(documentId, decision.get(), thread);
+                        });
             }
         }
         decisionLog.examined(thread.getLastTs());
         decisions.save(decisionLog);
+    }
+
+    // 문서 블록과 항상 같은 내용을 가리키도록, 재추출 시 트리플도 통째로 교체한다.
+    private void replaceTriples(UUID documentId, DecisionExtract extract, QuietThread thread) {
+        triples.deleteByDocumentId(documentId);
+        for (DecisionExtract.DecisionPoint point : extract.decisionPoints()) {
+            String subject = StringUtils.hasText(point.owner()) ? point.owner() : "팀";
+            String statement = StringUtils.hasText(point.rationale())
+                    ? point.decision() + " — " + point.rationale()
+                    : point.decision();
+            triples.save(new KnowledgeTriple(documentId, "decision", truncate(statement, 1000),
+                    truncate(subject, 200), "결정했다", truncate(point.decision(), 500),
+                    thread.getChannelId(), thread.getThreadTs()));
+        }
+        if (extract.tacitKnowledge() != null) {
+            for (DecisionExtract.TacitKnowledge item : extract.tacitKnowledge()) {
+                if (item.triples() == null) {
+                    continue;
+                }
+                for (DecisionExtract.Triple triple : item.triples()) {
+                    triples.save(new KnowledgeTriple(documentId, item.kind(), truncate(item.statement(), 1000),
+                            truncate(triple.subject(), 200), truncate(triple.predicate(), 200), truncate(triple.object(), 500),
+                            thread.getChannelId(), thread.getThreadTs()));
+                }
+            }
+        }
+    }
+
+    private String truncate(String text, int max) {
+        return text.length() <= max ? text : text.substring(0, max);
     }
 
     private UUID systemMemberId() {

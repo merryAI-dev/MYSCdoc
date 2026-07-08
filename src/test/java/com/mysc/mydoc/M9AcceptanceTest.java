@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -71,9 +77,15 @@ class M9AcceptanceTest {
     @Autowired
     FakeThreadSummaryClient llm;
 
+    @Autowired
+    org.springframework.boot.test.web.client.TestRestTemplate restTemplate;
+
+    UUID adminId;
+
     @BeforeEach
     void setup() {
         llm.reset();
+        jdbcTemplate.update("DELETE FROM knowledge_triple");
         jdbcTemplate.update("DELETE FROM slack_decision_log");
         jdbcTemplate.update("DELETE FROM slack_archive_message");
         jdbcTemplate.update("""
@@ -81,6 +93,13 @@ class M9AcceptanceTest {
                 VALUES (?, 'm9-space', 'M9 Space', ?)
                 ON CONFLICT (slug) DO NOTHING
                 """, UUID.randomUUID(), Timestamp.from(Instant.now()));
+        jdbcTemplate.update("""
+                INSERT INTO member (id, email, display_name, role, created_at)
+                VALUES (?, 'admin-m9@mysc.co.kr', 'Admin M9', 'ADMIN', ?)
+                ON CONFLICT (email) DO NOTHING
+                """, UUID.randomUUID(), Timestamp.from(Instant.now()));
+        adminId = jdbcTemplate.queryForObject(
+                "SELECT id FROM member WHERE email = 'admin-m9@mysc.co.kr'", UUID.class);
     }
 
     @Test
@@ -134,6 +153,11 @@ class M9AcceptanceTest {
         assertThat(jdbcTemplate.queryForList(
                 "SELECT DISTINCT source_type FROM block WHERE document_id = ?", String.class, documentId))
                 .containsExactly("SLACK_INGEST");
+        // 트리플 영속화: decision 1건 + 암묵지 1건
+        assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT kind FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
+                .containsExactlyInAnyOrder("decision", "constraint");
         assertThat(llm.calls).isEqualTo(1);
 
         // 같은 상태에서 잡이 다시 돌면 LLM을 다시 부르지 않는다
@@ -157,6 +181,66 @@ class M9AcceptanceTest {
         String updated = String.join("\n", jdbcTemplate.queryForList(
                 "SELECT content::text FROM block WHERE document_id = ? ORDER BY position", String.class, documentId));
         assertThat(updated).contains("공휴일이면 수요일로 미뤄요");
+        // 재추출 시 트리플도 통째로 교체된다 — 두 번째 fake는 tacitKnowledge가 비어 decision 1건만 남는다
+        assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT object FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
+                .contains("공휴일이면 수요일로 미뤄요");
+    }
+
+    @Test
+    void knowledgeApiRanksTriplesByBm25AndServesGraph() {
+        UUID documentId = seedDocument("지식그래프 테스트 문서");
+        insertTriple(documentId, "constraint", "결제 재시도 로직은 상한이 없으면 야간 알림 과다를 유발해요.",
+                "결제 재시도 로직", "유발한다", "야간 알림 과다");
+        insertTriple(documentId, "decision", "배포는 매주 화요일에 하기로 했어요.",
+                "팀", "결정했다", "배포는 매주 화요일에 해요");
+        insertTriple(documentId, "convention", "결제 API 장애는 민지가 1차 대응해요.",
+                "결제 API", "담당한다", "민지");
+
+        // BM25: '결제'가 들어간 트리플 2건만, 점수순으로 반환. '배포' 트리플은 점수 0이라 제외.
+        ResponseEntity<Map> search = restTemplate.exchange(
+                "/api/knowledge/triples?q=결제", HttpMethod.GET, entity(null), Map.class);
+        assertThat(search.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> hits = (List<Map<String, Object>>) search.getBody().get("triples");
+        assertThat(hits).hasSize(2);
+        assertThat(hits).allSatisfy(hit ->
+                assertThat(hit.get("subject").toString()).contains("결제"));
+        assertThat((Double) hits.get(0).get("score")).isGreaterThanOrEqualTo((Double) hits.get(1).get("score"));
+
+        // 그래프: 질의 없이 전체 — 간선 3개, 노드는 중복 없는 개체 수
+        ResponseEntity<Map> graph = restTemplate.exchange(
+                "/api/knowledge/graph", HttpMethod.GET, entity(null), Map.class);
+        assertThat(graph.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat((List<?>) graph.getBody().get("edges")).hasSize(3);
+        assertThat((List<?>) graph.getBody().get("nodes")).hasSize(6);
+    }
+
+    private UUID seedDocument(String title) {
+        UUID documentId = UUID.randomUUID();
+        UUID spaceId = jdbcTemplate.queryForObject("SELECT id FROM space WHERE slug = 'm9-space'", UUID.class);
+        jdbcTemplate.update("""
+                INSERT INTO document (id, space_id, title, owner_id, status, ttl_days, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'DRAFT', 90, 0, ?, ?)
+                """, documentId, spaceId, title, adminId,
+                Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
+        return documentId;
+    }
+
+    private void insertTriple(UUID documentId, String kind, String statement,
+                              String subject, String predicate, String object) {
+        jdbcTemplate.update("""
+                INSERT INTO knowledge_triple (id, document_id, kind, statement, subject, predicate, object,
+                                              channel_id, thread_ts, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'C_M9K', '1751800500.000100', ?)
+                """, UUID.randomUUID(), documentId, kind, statement, subject, predicate, object,
+                Timestamp.from(Instant.now()));
+    }
+
+    private HttpEntity<Object> entity(Object body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("X-Member-Id", adminId.toString());
+        return new HttpEntity<>(body, headers);
     }
 
     @Test
