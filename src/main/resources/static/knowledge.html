@@ -118,13 +118,18 @@ async function load(q) {
     return
   }
   emptyMsg.textContent = '아직 쌓인 지식 트리플이 없어요. Slack 논의가 수집되면 여기에 나타나요.'
-  const w = cv.clientWidth, h = cv.clientHeight
+  // 아직 레이아웃 전이라 clientWidth가 0일 수 있어 폴백 크기를 쓴다 (안 그러면 노드가 (0,0)에 박힘).
+  const w = cv.clientWidth || 800, h = cv.clientHeight || 600
   const prev = new Map(nodes.map(n => [n.id, n]))
-  nodes = graph.nodes.map(n => {
+  const count = graph.nodes.length
+  // 초기 위치는 index 기반 원형 배치 — 두 노드가 절대 겹치지 않게 (겹치면 반발력 방향이 0이 됨).
+  const ringR = Math.min(w, h) * 0.32
+  nodes = graph.nodes.map((n, i) => {
     const kept = prev.get(n.id)
+    const angle = (i / Math.max(1, count)) * Math.PI * 2
     return { id: n.id, degree: n.degree,
-             x: kept ? kept.x : w / 2 + (Math.random() - .5) * w * .6,
-             y: kept ? kept.y : h / 2 + (Math.random() - .5) * h * .6,
+             x: kept ? kept.x : w / 2 + Math.cos(angle) * ringR,
+             y: kept ? kept.y : h / 2 + Math.sin(angle) * ringR,
              vx: 0, vy: 0 }
   })
   const byId = new Map(nodes.map(n => [n.id, n]))
@@ -143,13 +148,17 @@ async function load(q) {
 // 오일러 적분 + 감쇠(DAMP)로 수렴시킨다
 const K_R = 6000, K_S = 0.02, L = 140, K_C = 0.015, DAMP = 0.85
 function step() {
-  const w = cv.clientWidth, h = cv.clientHeight
+  const w = cv.clientWidth || 800, h = cv.clientHeight || 600
   for (const n of nodes) { n.fx = 0; n.fy = 0 }
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const a = nodes[i], b = nodes[j]
       let dx = a.x - b.x, dy = a.y - b.y
-      let d2 = dx * dx + dy * dy || 1, d = Math.sqrt(d2)
+      let d2 = dx * dx + dy * dy
+      if (d2 < 0.01) { // 두 노드가 겹치면 index로 결정적 방향을 줘 분리 (0/0 방지)
+        dx = (i - j) || 1; dy = (i * 7 - j * 3) || 1; d2 = dx * dx + dy * dy
+      }
+      const d = Math.sqrt(d2)
       const f = K_R / d2
       dx /= d; dy /= d
       a.fx += f * dx; a.fy += f * dy
@@ -328,9 +337,8 @@ document.getElementById('syncNow').onclick = async ev => {
   finally { btn.disabled = false; setTimeout(() => { msg.textContent = '' }, 6000) }
 }
 
-resize()
-load('')
-frame()
+// 첫 페인트 후에 로드해야 캔버스 레이아웃(clientWidth)이 잡혀 노드가 제대로 퍼진다.
+requestAnimationFrame(() => { resize(); load(''); frame() })
 </script>
 </body>
 </html>
