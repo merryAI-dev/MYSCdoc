@@ -1,0 +1,26 @@
+# mydoc용 self-host Postgres + pgvector (Fly App). 사설망에서만 접근(공개 미노출).
+# pgvector/pgvector 이미지는 postgres 계정이 슈퍼유저라 V1의 CREATE EXTENSION vector가 바로 통과된다.
+app = "mysc-mydoc-db"
+primary_region = "nrt"
+
+[build]
+  image = "pgvector/pgvector:pg16"
+
+[env]
+  # 볼륨을 /var/lib/postgresql/data에 마운트하므로 실제 데이터는 하위 디렉터리에 둔다
+  # (마운트 지점 바로 위에 initdb하면 lost+found 충돌이 나기 때문).
+  PGDATA = "/var/lib/postgresql/data/pgdata"
+  POSTGRES_DB = "mydoc"
+  POSTGRES_USER = "mydoc"
+
+[[mounts]]
+  source = "pgdata"
+  destination = "/var/lib/postgresql/data"
+
+[[services]]
+  internal_port = 5432
+  protocol = "tcp"
+  # 공개 포트 없음 — 같은 org의 .internal 사설망으로만 접근
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1

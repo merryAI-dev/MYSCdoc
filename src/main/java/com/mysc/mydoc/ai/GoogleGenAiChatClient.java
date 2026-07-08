@@ -45,11 +45,11 @@ public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryCli
                 // token cost without helping here.
                 new GenerationConfig(new ThinkingConfig(0))
         );
-        GenerateContentResponse response = restClient.post()
+        GenerateContentResponse response = GeminiRetry.call("generateContent", () -> restClient.post()
                 .uri("/models/{model}:generateContent", model)
                 .body(request)
                 .retrieve()
-                .body(GenerateContentResponse.class);
+                .body(GenerateContentResponse.class));
         return response.candidates().get(0).content().parts().get(0).text();
     }
 

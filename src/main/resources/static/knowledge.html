@@ -104,10 +104,20 @@ function resize() {
 window.addEventListener('resize', resize)
 
 async function load(q) {
-  const res = await fetch('/api/knowledge/graph?limit=60' + (q ? '&q=' + encodeURIComponent(q) : ''),
-      { headers: { 'X-Member-Id': memberId } })
-  if (!res.ok) return
-  const graph = await res.json()
+  const emptyMsg = document.getElementById('emptyMsg')
+  let graph
+  try {
+    const res = await fetch('/api/knowledge/graph?limit=60' + (q ? '&q=' + encodeURIComponent(q) : ''),
+        { headers: { 'X-Member-Id': memberId } })
+    if (!res.ok) throw new Error(res.status)
+    graph = await res.json()
+  } catch {
+    // 로드 실패를 "트리플 없음"과 구분해서 보여준다
+    emptyMsg.textContent = '그래프를 불러오지 못했어요. 로그인(memberId) 상태와 서버를 확인해 주세요.'
+    emptyMsg.style.display = 'flex'
+    return
+  }
+  emptyMsg.textContent = '아직 쌓인 지식 트리플이 없어요. Slack 논의가 수집되면 여기에 나타나요.'
   const w = cv.clientWidth, h = cv.clientHeight
   const prev = new Map(nodes.map(n => [n.id, n]))
   nodes = graph.nodes.map(n => {

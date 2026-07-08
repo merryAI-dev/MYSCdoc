@@ -40,11 +40,11 @@ public class GoogleGenAiEmbeddingAdapter implements EmbeddingPort {
 
     @Override
     public float[] embed(String text) {
-        EmbedContentResponse response = restClient.post()
+        EmbedContentResponse response = GeminiRetry.call("embedContent", () -> restClient.post()
                 .uri("/models/{model}:embedContent", model)
                 .body(new EmbedContentRequest(new Content(List.of(new Part(text))), new EmbedConfig(dimensions)))
                 .retrieve()
-                .body(EmbedContentResponse.class);
+                .body(EmbedContentResponse.class));
         return toFloatArray(response.embedding().values());
     }
 
@@ -53,11 +53,11 @@ public class GoogleGenAiEmbeddingAdapter implements EmbeddingPort {
         List<BatchEmbedRequestItem> requests = texts.stream()
                 .map(text -> new BatchEmbedRequestItem("models/" + model, new Content(List.of(new Part(text))), new EmbedConfig(dimensions)))
                 .toList();
-        BatchEmbedContentsResponse response = restClient.post()
+        BatchEmbedContentsResponse response = GeminiRetry.call("batchEmbedContents", () -> restClient.post()
                 .uri("/models/{model}:batchEmbedContents", model)
                 .body(new BatchEmbedContentsRequest(requests))
                 .retrieve()
-                .body(BatchEmbedContentsResponse.class);
+                .body(BatchEmbedContentsResponse.class));
         return response.embeddings().stream().map(embedding -> toFloatArray(embedding.values())).toList();
     }
 

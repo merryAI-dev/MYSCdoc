@@ -239,8 +239,16 @@ $('logout').onclick = () => { localStorage.removeItem('mydoc.memberId'); locatio
 
 // ---------- sidebar ----------
 async function loadNav() {
-  spaces = await api('GET', '/api/spaces')
-  const nav = $('nav'); nav.innerHTML = ''
+  const nav = $('nav')
+  try {
+    spaces = await api('GET', '/api/spaces')
+  } catch (e) {
+    // 부팅 중 조용히 죽지 않도록 — 서버 문제와 로그인 문제를 구분해 보여준다
+    nav.innerHTML = '<div class="spaceRow">문서 목록을 불러오지 못했어요</div>'
+    toast('서버 연결을 확인해 주세요: ' + e.message)
+    return
+  }
+  nav.innerHTML = ''
   for (const space of spaces) {
     const head = document.createElement('div')
     head.className = 'spaceRow'; head.textContent = space.name
@@ -436,8 +444,14 @@ $('search').addEventListener('input', e => {
   const query = e.target.value.trim()
   if (!query) { $('searchResults').style.display = 'none'; return }
   searchTimer = setTimeout(async () => {
-    const r = await api('GET', `/api/search?q=${encodeURIComponent(query)}&limit=8`).catch(() => ({ hits: [] }))
+    // 검색 API 실패를 "결과 없음"으로 위장하지 않는다 — 에러는 에러로 보여준다
+    const r = await api('GET', `/api/search?q=${encodeURIComponent(query)}&limit=8`).catch(() => null)
     const box = $('searchResults')
+    if (!r) {
+      box.innerHTML = '<div class="hit" style="color:var(--muted)">검색에 실패했어요 — 서버 연결을 확인해 주세요</div>'
+      box.style.display = 'block'
+      return
+    }
     box.innerHTML = r.hits.map(h =>
       `<div class="hit" data-doc="${h.documentId}"><div class="path">${esc(h.headingPath || h.title)}</div>${esc(h.snippet || '').slice(0, 120)}</div>`
     ).join('') || '<div class="hit" style="color:var(--muted)">결과가 없어요</div>'

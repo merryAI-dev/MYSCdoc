@@ -5,8 +5,15 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/mydoc}
     username: ${DB_USERNAME:mydoc}
     password: ${DB_PASSWORD:changeme}
+    hikari:
+      # Cloud Run: max-instances × pool-size < Cloud SQL max_connections (DEPLOY-PLAN B4)
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      max-lifetime: 1700000 # Cloud SQL이 유휴 커넥션을 끊기 전에 앱이 먼저 재생성 (~28분)
   flyway:
     enabled: true
+    # 프로덕션에서는 DDL 권한을 가진 마이그레이션 전용 계정을 따로 쓴다 (미지정 시 datasource 계정)
+    user: ${FLYWAY_DB_USERNAME:${DB_USERNAME:mydoc}}
+    password: ${FLYWAY_DB_PASSWORD:${DB_PASSWORD:changeme}}
   jpa:
     hibernate:
       ddl-auto: validate
