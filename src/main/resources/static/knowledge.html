@@ -284,6 +284,25 @@ async function loadChannels() {
       const name = document.createElement('span')
       name.className = 'nm'
       name.textContent = (ch.isPrivate ? '🔒 ' : '# ') + ch.channelName
+      const controls = document.createElement('span')
+      controls.style.cssText = 'display:flex;align-items:center;gap:8px'
+      // 옵트인된 채널만 "가져오기"(백필) 버튼을 준다 — 안 켠 채널은 아카이브 자체를 안 하므로.
+      const pull = document.createElement('button')
+      pull.textContent = '가져오기'
+      pull.style.cssText = 'font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;background:var(--bg);cursor:pointer'
+      pull.style.visibility = ch.archiveEnabled ? 'visible' : 'hidden'
+      pull.onclick = async () => {
+        pull.disabled = true; const prev = pull.textContent; pull.textContent = '가져오는 중…'
+        try {
+          const res = await api('/api/slack/channels/' + ch.channelId + '/backfill?limit=100', { method: 'POST' })
+          if (!res.ok) throw new Error()
+          const r = await res.json()
+          document.getElementById('settingsMsg').textContent =
+              '메시지 ' + r.archived + '건 읽음 → 스레드 ' + r.examined + '개 판별, 문서 ' + r.documented + '건 생성.'
+          load(document.getElementById('q').value.trim())
+        } catch { document.getElementById('settingsMsg').textContent = '가져오기에 실패했어요.' }
+        finally { pull.disabled = false; pull.textContent = prev; setTimeout(() => { document.getElementById('settingsMsg').textContent = '' }, 8000) }
+      }
       const toggle = document.createElement('input')
       toggle.type = 'checkbox'
       toggle.checked = ch.archiveEnabled
@@ -293,10 +312,12 @@ async function loadChannels() {
           method: 'PUT',
           body: JSON.stringify({ enabled: toggle.checked, channelName: ch.channelName }),
         })
-        if (!res.ok) toggle.checked = !toggle.checked
+        if (res.ok) pull.style.visibility = toggle.checked ? 'visible' : 'hidden'
+        else toggle.checked = !toggle.checked
         toggle.disabled = false
       }
-      row.append(name, toggle)
+      controls.append(pull, toggle)
+      row.append(name, controls)
       list.appendChild(row)
     }
   } catch { list.textContent = '채널 목록을 불러오지 못했어요 (Slack 연동 확인 필요).' }

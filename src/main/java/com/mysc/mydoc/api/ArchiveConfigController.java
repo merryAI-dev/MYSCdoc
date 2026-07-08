@@ -5,6 +5,7 @@ import com.mysc.mydoc.domain.KnowledgeSetting;
 import com.mysc.mydoc.domain.SlackChannelConfig;
 import com.mysc.mydoc.ingest.SlackGateway;
 import com.mysc.mydoc.ingest.archive.DecisionExtractionJob;
+import com.mysc.mydoc.ingest.archive.SlackBackfillService;
 import com.mysc.mydoc.repository.KnowledgeSettingRepository;
 import com.mysc.mydoc.repository.SlackChannelConfigRepository;
 import jakarta.validation.Valid;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -31,17 +33,20 @@ public class ArchiveConfigController {
     private final SlackChannelConfigRepository channelConfigs;
     private final KnowledgeSettingRepository settings;
     private final DecisionExtractionJob decisionJob;
+    private final SlackBackfillService backfill;
 
     public ArchiveConfigController(
             ObjectProvider<SlackGateway> slack,
             SlackChannelConfigRepository channelConfigs,
             KnowledgeSettingRepository settings,
-            DecisionExtractionJob decisionJob
+            DecisionExtractionJob decisionJob,
+            SlackBackfillService backfill
     ) {
         this.slack = slack;
         this.channelConfigs = channelConfigs;
         this.settings = settings;
         this.decisionJob = decisionJob;
+        this.backfill = backfill;
     }
 
     public record ChannelResponse(String channelId, String channelName, boolean isPrivate, boolean archiveEnabled) {}
@@ -95,6 +100,20 @@ public class ArchiveConfigController {
             return new SyncResponse(false, 0, 0); // 이미 실행 중
         }
         return new SyncResponse(true, result.examined(), result.documented());
+    }
+
+    public record BackfillResponse(int archived, boolean started, int examined, int documented) {}
+
+    /** 채널의 기존 논의를 시스템이 읽어와 아카이브한 뒤, 곧바로 추출 루프를 돌린다. */
+    @PostMapping("/api/slack/channels/{channelId}/backfill")
+    BackfillResponse backfill(@PathVariable String channelId,
+                              @RequestParam(defaultValue = "100") int limit) {
+        int archived = backfill.backfill(channelId, Math.min(limit, 200));
+        DecisionExtractionJob.SyncResult result = decisionJob.syncNow();
+        if (result.examined() < 0) {
+            return new BackfillResponse(archived, false, 0, 0);
+        }
+        return new BackfillResponse(archived, true, result.examined(), result.documented());
     }
 
     @GetMapping("/api/knowledge/settings")

@@ -49,6 +49,7 @@ public class DecisionExtractionJob {
     private final SlackArchiveMessageRepository archives;
     private final SlackDecisionLogRepository decisions;
     private final DecisionExtractPort extractor;
+    private final DecisionVerifyPort verifier;
     private final DocumentService documents;
     private final DocumentRepository documentRepository;
     private final KnowledgeTripleRepository triples;
@@ -63,6 +64,7 @@ public class DecisionExtractionJob {
             SlackArchiveMessageRepository archives,
             SlackDecisionLogRepository decisions,
             DecisionExtractPort extractor,
+            DecisionVerifyPort verifier,
             DocumentService documents,
             DocumentRepository documentRepository,
             KnowledgeTripleRepository triples,
@@ -76,6 +78,7 @@ public class DecisionExtractionJob {
         this.archives = archives;
         this.decisions = decisions;
         this.extractor = extractor;
+        this.verifier = verifier;
         this.documents = documents;
         this.documentRepository = documentRepository;
         this.triples = triples;
@@ -141,9 +144,18 @@ public class DecisionExtractionJob {
                 .map(message -> new SlackMessage(message.getUserId(), message.getUserId(), message.getText(), message.getTs()))
                 .toList();
         // LLM 호출은 트랜잭션 밖에서 (M2 rechunk와 같은 원칙)
+        // 2-패스: 추출 에이전트가 뽑고 → 검증 에이전트가 원문과 대조해 환각·오탐을 반려한다.
         Optional<DecisionExtract> decision = extractor.extract(messages);
-        tx.executeWithoutResult(status -> persist(thread, decision));
-        return decision.isPresent();
+        if (decision.isPresent()) {
+            DecisionVerifyPort.Verdict verdict = verifier.verify(messages, decision.get());
+            if (!verdict.approved()) {
+                log.info("추출 반려됨 {}:{} — {}", thread.getChannelId(), thread.getThreadTs(), verdict.reason());
+                decision = Optional.empty();
+            }
+        }
+        Optional<DecisionExtract> result = decision;
+        tx.executeWithoutResult(status -> persist(thread, result));
+        return result.isPresent();
     }
 
     private void persist(QuietThread thread, Optional<DecisionExtract> decision) {
@@ -176,7 +188,9 @@ public class DecisionExtractionJob {
     // 문서 블록과 항상 같은 내용을 가리키도록, 재추출 시 트리플도 통째로 교체한다.
     private void replaceTriples(UUID documentId, DecisionExtract extract, QuietThread thread) {
         triples.deleteByDocumentId(documentId);
-        for (DecisionExtract.DecisionPoint point : extract.decisionPoints()) {
+        List<DecisionExtract.DecisionPoint> decisions =
+                extract.decisionPoints() == null ? List.of() : extract.decisionPoints();
+        for (DecisionExtract.DecisionPoint point : decisions) {
             String subject = StringUtils.hasText(point.owner()) ? point.owner() : "팀";
             String statement = StringUtils.hasText(point.rationale())
                     ? point.decision() + " — " + point.rationale()
@@ -217,8 +231,12 @@ public class DecisionExtractionJob {
             blocks.add(payload(BlockType.PARAGRAPH, paragraph(line), thread));
         }
 
-        blocks.add(payload(BlockType.HEADING2, heading("의사결정"), thread));
-        for (DecisionExtract.DecisionPoint point : extract.decisionPoints()) {
+        List<DecisionExtract.DecisionPoint> decisions =
+                extract.decisionPoints() == null ? List.of() : extract.decisionPoints();
+        if (!decisions.isEmpty()) {
+            blocks.add(payload(BlockType.HEADING2, heading("의사결정"), thread));
+        }
+        for (DecisionExtract.DecisionPoint point : decisions) {
             blocks.add(payload(BlockType.PARAGRAPH, paragraph("결정: " + point.decision()), thread));
             if (StringUtils.hasText(point.rationale())) {
                 blocks.add(payload(BlockType.PARAGRAPH, paragraph("근거: " + point.rationale()), thread));

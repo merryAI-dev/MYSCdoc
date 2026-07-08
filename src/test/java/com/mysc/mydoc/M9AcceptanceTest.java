@@ -63,6 +63,13 @@ class M9AcceptanceTest {
         FakeThreadSummaryClient fakeThreadSummaryClient() {
             return new FakeThreadSummaryClient();
         }
+
+        // 검증 에이전트는 별도 fake로 둔다 — 추출 fake 응답 카운트를 오염시키지 않고, 반려 시나리오만 따로 켠다.
+        @Bean
+        @Primary
+        FakeDecisionVerifyPort fakeDecisionVerifyPort() {
+            return new FakeDecisionVerifyPort();
+        }
     }
 
     @Autowired
@@ -78,6 +85,9 @@ class M9AcceptanceTest {
     FakeThreadSummaryClient llm;
 
     @Autowired
+    FakeDecisionVerifyPort verifier;
+
+    @Autowired
     org.springframework.boot.test.web.client.TestRestTemplate restTemplate;
 
     UUID adminId;
@@ -85,6 +95,7 @@ class M9AcceptanceTest {
     @BeforeEach
     void setup() {
         llm.reset();
+        verifier.reset();
         jdbcTemplate.update("DELETE FROM knowledge_triple");
         jdbcTemplate.update("DELETE FROM slack_decision_log");
         jdbcTemplate.update("DELETE FROM slack_archive_message");
@@ -146,7 +157,7 @@ class M9AcceptanceTest {
         assertThat(updated.getBody().get("minMessages")).isEqualTo(2);
 
         seedQuietThread("C_M9S", "1751800600.000100", List.of("이슈 정리합시다", "네 그러시죠"));
-        llm.enqueue("{\"hasDecision\": false}");
+        llm.enqueue("{\"worthRecording\": false}");
         job.run();
         assertThat(llm.calls).isEqualTo(1); // 기본값(3)이었다면 0이어야 한다
     }
@@ -156,7 +167,7 @@ class M9AcceptanceTest {
         seedQuietThread("C_M9M", "1751800700.000100",
                 List.of("배포 브랜치 전략 정합시다", "trunk 기반으로 가죠", "네 trunk로 확정"));
         llm.enqueue("""
-                {"hasDecision": true, "title": "브랜치 전략 결정",
+                {"worthRecording": true, "title": "브랜치 전략 결정",
                  "summary": ["브랜치 전략을 trunk 기반으로 확정했어요."],
                  "decisionPoints": [{"decision": "trunk 기반 브랜치 전략을 써요.",
                    "rationale": "", "alternatives": [], "owner": "", "condition": ""}],
@@ -173,12 +184,71 @@ class M9AcceptanceTest {
     }
 
     @Test
+    void verifierRejectionDropsExtraction() {
+        // 추출 에이전트는 결정을 뽑았지만, 검증 에이전트가 반려하면 문서를 만들지 않는다.
+        String channel = "C_M9V";
+        String root = "1751800900.000100";
+        seedQuietThread(channel, root, List.of("이 모델 좋대요", "오 그래요?", "네 추천해요"));
+        verifier.reject();
+        llm.enqueue("""
+                {"worthRecording": true, "title": "잘못 잡은 결정",
+                 "summary": ["누군가 모델을 추천했어요."],
+                 "decisionPoints": [{"decision": "이 모델을 쓰기로 했어요.",
+                   "rationale": "", "alternatives": [], "owner": "", "condition": ""}],
+                 "tacitKnowledge": []}
+                """);
+
+        job.run();
+
+        assertThat(verifier.calls).isEqualTo(1); // 검증이 실제로 호출됐다
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT document_id FROM slack_decision_log WHERE channel_id = ? AND thread_ts = ?",
+                UUID.class, channel, root)).as("반려되면 문서를 만들지 않는다").isNull();
+        assertThat(count("SELECT COUNT(*) FROM document WHERE title = '잘못 잡은 결정'")).isEqualTo(0);
+    }
+
+    @Test
+    void knowledgeOnlyThreadWithoutDecisionStillBecomesDocument() {
+        // 결정("~하기로 했다")은 없지만 근본원인+해결 같은 재사용 지식만 있는 스레드도 기록해야 한다 (todoc 본질).
+        String channel = "C_M9K2";
+        String root = "1751800800.000100";
+        seedQuietThread(channel, root, List.of(
+                "사용자 목록 렌더링할 때 컨설턴트 메일이 문자열이 아니면 화면이 터져요",
+                "확인해볼게요",
+                "해결됐습니다. 원인은 메일 필드가 null일 때 처리 누락이었고 null 가드 넣었어요"));
+        llm.enqueue("""
+                {"worthRecording": true, "title": "사용자 목록 렌더링 메일 null 처리 누락",
+                 "summary": ["사용자 목록 렌더링에서 메일이 문자열이 아니면 화면이 깨지는 문제가 있었어요.",
+                             "원인은 메일 null 처리 누락이었고 null 가드로 해결했어요."],
+                 "decisionPoints": [],
+                 "tacitKnowledge": [{"kind": "gotcha",
+                   "statement": "사용자 목록 렌더링은 메일이 null이면 깨져요 — null 가드가 필요해요.",
+                   "triples": [{"subject": "사용자 목록 렌더링", "predicate": "깨진다", "object": "메일이 null일 때"}]}]}
+                """);
+
+        job.run();
+
+        UUID documentId = jdbcTemplate.queryForObject(
+                "SELECT document_id FROM slack_decision_log WHERE channel_id = ? AND thread_ts = ?",
+                UUID.class, channel, root);
+        assertThat(documentId).as("결정이 없어도 지식만으로 문서가 생성돼야 한다").isNotNull();
+        String blocks = String.join("\n", jdbcTemplate.queryForList(
+                "SELECT content::text FROM block WHERE document_id = ? ORDER BY position", String.class, documentId));
+        assertThat(blocks).contains("조직의 암묵지").contains("null 가드");
+        assertThat(blocks).doesNotContain("의사결정"); // 빈 결정 섹션은 만들지 않는다
+        // 트리플은 gotcha 1건 (decision 트리플 없음)
+        assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT kind FROM knowledge_triple WHERE document_id = ?", String.class, documentId)).isEqualTo("gotcha");
+    }
+
+    @Test
     void quietDecisionThreadBecomesDraftDocumentAndUpdatesWhileDraft() {
         String channel = "C_M9B";
         String root = "1751800100.000100";
         seedQuietThread(channel, root, List.of("배포 요일을 정합시다", "화요일이 좋겠어요", "화요일로 확정할게요"));
         llm.enqueue("""
-                {"hasDecision": true, "title": "배포 요일 결정",
+                {"worthRecording": true, "title": "배포 요일 결정",
                  "summary": ["배포 요일에 대한 논의가 있었고, 화요일로 확정됐어요."],
                  "decisionPoints": [{"decision": "배포는 매주 화요일에 해요.",
                    "rationale": "주말 직후 장애 대응이 어려워요.", "alternatives": [], "owner": "", "condition": ""}],
@@ -224,7 +294,7 @@ class M9AcceptanceTest {
         archive.archive(channel, laterTs, root, "U2", "아 참, 공휴일이면 수요일로 미뤄요");
         backdate(channel, laterTs);
         llm.enqueue("""
-                {"hasDecision": true, "title": "배포 요일 결정",
+                {"worthRecording": true, "title": "배포 요일 결정",
                  "summary": ["배포 요일이 화요일로 확정된 뒤, 공휴일 예외가 추가로 논의됐어요."],
                  "decisionPoints": [{"decision": "배포는 매주 화요일에 하고, 공휴일이면 수요일로 미뤄요.",
                    "rationale": "", "alternatives": [], "owner": "", "condition": "공휴일인 경우"}],
@@ -303,7 +373,7 @@ class M9AcceptanceTest {
         String channel = "C_M9C";
         String root = "1751800200.000100";
         seedQuietThread(channel, root, List.of("점심 뭐 먹지", "국밥?", "ㅋㅋ 좋다"));
-        llm.enqueue("{\"hasDecision\": false}");
+        llm.enqueue("{\"worthRecording\": false}");
 
         job.run();
 
@@ -384,6 +454,28 @@ class M9AcceptanceTest {
                 throw new IllegalStateException("unexpected LLM call");
             }
             return responses.poll();
+        }
+    }
+
+    // 검증 에이전트 fake — 기본 승인, reject()로 다음 검증부터 반려.
+    static class FakeDecisionVerifyPort implements com.mysc.mydoc.ingest.archive.DecisionVerifyPort {
+        boolean approve = true;
+        int calls;
+
+        void reset() {
+            approve = true;
+            calls = 0;
+        }
+
+        void reject() {
+            approve = false;
+        }
+
+        @Override
+        public Verdict verify(List<com.mysc.mydoc.ingest.SlackMessage> messages,
+                              com.mysc.mydoc.ingest.archive.DecisionExtract extract) {
+            calls++;
+            return new Verdict(approve, approve ? "ok" : "rejected by test");
         }
     }
 }

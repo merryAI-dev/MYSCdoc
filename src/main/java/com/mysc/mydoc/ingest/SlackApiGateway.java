@@ -110,6 +110,49 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
         }
     }
 
+    @Override
+    public List<ArchivableMessage> channelHistory(String channelId, int limit) {
+        try {
+            List<ArchivableMessage> archivable = new java.util.ArrayList<>();
+            var history = slack.conversationsHistory(request -> request.channel(channelId).limit(limit));
+            if (!history.isOk()) {
+                throw new IllegalStateException("conversations.history failed: " + history.getError());
+            }
+            for (Message parent : nonNull(history.getMessages())) {
+                addIfArchivable(archivable, parent, parent.getTs());
+                // 답글이 있는 스레드는 펼쳐서 답글까지 아카이브한다.
+                if (parent.getReplyCount() != null && parent.getReplyCount() > 0) {
+                    var replies = slack.conversationsReplies(request -> request.channel(channelId).ts(parent.getTs()));
+                    if (replies.isOk()) {
+                        for (Message reply : nonNull(replies.getMessages())) {
+                            if (!reply.getTs().equals(parent.getTs())) { // 루트는 위에서 이미 넣음
+                                addIfArchivable(archivable, reply, parent.getTs());
+                            }
+                        }
+                    }
+                }
+            }
+            return archivable;
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    // 봇/시스템 메시지(subtype 있음)와 빈 본문은 아카이브에서 제외한다.
+    private void addIfArchivable(List<ArchivableMessage> out, Message message, String threadTs) {
+        if (message.getBotId() != null || StringUtils.hasText(message.getSubtype())) {
+            return;
+        }
+        if (!StringUtils.hasText(message.getUser()) || !StringUtils.hasText(message.getText())) {
+            return;
+        }
+        out.add(new ArchivableMessage(message.getTs(), threadTs, message.getUser(), message.getText()));
+    }
+
+    private static List<Message> nonNull(List<Message> messages) {
+        return messages == null ? List.of() : messages;
+    }
+
     private String threadTs(String channelId, String messageTs) throws Exception {
         var response = slack.conversationsHistory(request -> request
                 .channel(channelId)
