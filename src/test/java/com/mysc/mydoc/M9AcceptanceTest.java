@@ -184,8 +184,9 @@ class M9AcceptanceTest {
     }
 
     @Test
-    void verifierRejectionDropsExtraction() {
-        // 추출 에이전트는 결정을 뽑았지만, 검증 에이전트가 반려하면 문서를 만들지 않는다.
+    void verifierRejectionKeepsDocumentButDropsTriples() {
+        // 검증 에이전트가 반려해도 논의 자체는 문서로 누적/아카이빙한다 — 다만 검증 안 된
+        // 트리플은 지식그래프에 올리지 않는다 (구조화 지식은 검증된 것만).
         String channel = "C_M9V";
         String root = "1751800900.000100";
         seedQuietThread(channel, root, List.of("이 모델 좋대요", "오 그래요?", "네 추천해요"));
@@ -195,16 +196,23 @@ class M9AcceptanceTest {
                  "summary": ["누군가 모델을 추천했어요."],
                  "decisionPoints": [{"decision": "이 모델을 쓰기로 했어요.",
                    "rationale": "", "alternatives": [], "owner": "", "condition": ""}],
-                 "tacitKnowledge": []}
+                 "tacitKnowledge": [{"kind": "convention", "statement": "이 팀은 새 모델을 추천받으면 시도해봐요.",
+                   "triples": [{"subject": "팀", "predicate": "시도한다", "object": "새 모델"}]}]}
                 """);
 
         job.run();
 
         assertThat(verifier.calls).isEqualTo(1); // 검증이 실제로 호출됐다
-        assertThat(jdbcTemplate.queryForObject(
+        UUID documentId = jdbcTemplate.queryForObject(
                 "SELECT document_id FROM slack_decision_log WHERE channel_id = ? AND thread_ts = ?",
-                UUID.class, channel, root)).as("반려되면 문서를 만들지 않는다").isNull();
-        assertThat(count("SELECT COUNT(*) FROM document WHERE title = '잘못 잡은 결정'")).isEqualTo(0);
+                UUID.class, channel, root);
+        assertThat(documentId).as("반려돼도 논의 자체는 문서로 남는다").isNotNull();
+        assertThat(count("SELECT COUNT(*) FROM document WHERE title = '잘못 잡은 결정'")).isEqualTo(1);
+        String blocks = String.join("\n", jdbcTemplate.queryForList(
+                "SELECT content::text FROM block WHERE document_id = ? ORDER BY position", String.class, documentId));
+        assertThat(blocks).contains("검증 미통과").contains("rejected by test");
+        assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'"))
+                .as("검증 안 된 트리플은 지식그래프에 올리지 않는다").isEqualTo(0);
     }
 
     @Test

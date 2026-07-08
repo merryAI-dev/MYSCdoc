@@ -132,7 +132,7 @@ public class DecisionExtractionJob {
         }
     }
 
-    /** 문서를 새로 만들었거나 갱신했으면 true (의사결정 없음/스킵이면 false). */
+    /** 문서를 새로 만들었거나 갱신했으면 true (기록 가치 없음/스킵이면 false). */
     boolean process(QuietThread thread) {
         var existing = decisions.findByChannelIdAndThreadTs(thread.getChannelId(), thread.getThreadTs());
         if (existing.isPresent() && existing.get().getLastTs().equals(thread.getLastTs())) {
@@ -144,40 +144,53 @@ public class DecisionExtractionJob {
                 .map(message -> new SlackMessage(message.getUserId(), message.getUserId(), message.getText(), message.getTs()))
                 .toList();
         // LLM 호출은 트랜잭션 밖에서 (M2 rechunk와 같은 원칙)
-        // 2-패스: 추출 에이전트가 뽑고 → 검증 에이전트가 원문과 대조해 환각·오탐을 반려한다.
+        // 2-패스: 추출 에이전트가 뽑고 → 검증 에이전트가 원문과 대조해 신뢰도만 매긴다.
+        // 반려돼도 논의 자체는 문서로 남긴다(누적/아카이빙 우선) — 다만 검증 안 된 트리플은
+        // 지식그래프에 올리지 않는다(구조화 지식은 검증된 것만).
         Optional<DecisionExtract> decision = extractor.extract(messages);
+        String rejectionReason = null;
         if (decision.isPresent()) {
             DecisionVerifyPort.Verdict verdict = verifier.verify(messages, decision.get());
             if (!verdict.approved()) {
-                log.info("추출 반려됨 {}:{} — {}", thread.getChannelId(), thread.getThreadTs(), verdict.reason());
-                decision = Optional.empty();
+                log.info("추출 미검증(트리플 생략) {}:{} — {}", thread.getChannelId(), thread.getThreadTs(), verdict.reason());
+                rejectionReason = verdict.reason();
             }
         }
-        Optional<DecisionExtract> result = decision;
-        tx.executeWithoutResult(status -> persist(thread, result));
-        return result.isPresent();
+        boolean documented = decision.isPresent();
+        String reasonForPersist = rejectionReason;
+        tx.executeWithoutResult(status -> persist(thread, decision, reasonForPersist));
+        return documented;
     }
 
-    private void persist(QuietThread thread, Optional<DecisionExtract> decision) {
+    private void persist(QuietThread thread, Optional<DecisionExtract> decision, String rejectionReason) {
         SlackDecisionLog decisionLog = decisions.findByChannelIdAndThreadTs(thread.getChannelId(), thread.getThreadTs())
                 .orElseGet(() -> new SlackDecisionLog(thread.getChannelId(), thread.getThreadTs(), thread.getLastTs()));
+        boolean verified = rejectionReason == null;
         if (decision.isPresent()) {
             UUID systemMemberId = systemMemberId();
             if (decisionLog.getDocumentId() == null) {
                 var space = spaces.findBySlug(defaultSpaceSlug)
                         .orElseThrow(() -> new NotFoundException("space not found: " + defaultSpaceSlug));
                 var document = documents.create(space.getId(), decision.get().title(), systemMemberId);
-                documents.replaceBlocks(document.getId(), blocks(decision.get(), thread), systemMemberId, ChangeCause.SLACK_INGEST);
+                documents.replaceBlocks(document.getId(), blocks(decision.get(), thread, rejectionReason), systemMemberId, ChangeCause.SLACK_INGEST);
                 decisionLog.linkDocument(document.getId());
-                replaceTriples(document.getId(), decision.get(), thread);
+                if (verified) {
+                    replaceTriples(document.getId(), decision.get(), thread);
+                }
             } else {
                 // 스레드가 이어지면 DRAFT 문서만 갱신한다. 사람이 이미 검증한(ACTIVE) 문서는 덮어쓰지 않는다.
                 UUID documentId = decisionLog.getDocumentId();
                 documentRepository.findById(documentId)
                         .filter(document -> document.getStatus() == DocStatus.DRAFT)
                         .ifPresent(document -> {
-                            documents.replaceBlocks(documentId, blocks(decision.get(), thread), systemMemberId, ChangeCause.SLACK_INGEST);
-                            replaceTriples(documentId, decision.get(), thread);
+                            documents.replaceBlocks(documentId, blocks(decision.get(), thread, rejectionReason), systemMemberId, ChangeCause.SLACK_INGEST);
+                            if (verified) {
+                                replaceTriples(documentId, decision.get(), thread);
+                            } else {
+                                // 재추출이 이번엔 미검증으로 나오면, 이전에 검증됐던 트리플도 함께 내린다
+                                // (그래프는 항상 "현재 검증 상태"만 반영해야 하므로).
+                                triples.deleteByDocumentId(documentId);
+                            }
                         });
             }
         }
@@ -223,8 +236,14 @@ public class DecisionExtractionJob {
                 .getId();
     }
 
-    private List<BlockPayload> blocks(DecisionExtract extract, QuietThread thread) {
+    private List<BlockPayload> blocks(DecisionExtract extract, QuietThread thread, String rejectionReason) {
         List<BlockPayload> blocks = new ArrayList<>();
+
+        if (rejectionReason != null) {
+            blocks.add(payload(BlockType.PARAGRAPH,
+                    paragraph("⚠️ 검증 미통과 — 아래 내용은 자동 검증을 통과하지 못해 지식그래프에는 반영되지 않았어요. "
+                            + "사람이 확인해 주세요. 검증 사유: " + rejectionReason), thread));
+        }
 
         blocks.add(payload(BlockType.HEADING2, heading("요약"), thread));
         for (String line : extract.summary()) {

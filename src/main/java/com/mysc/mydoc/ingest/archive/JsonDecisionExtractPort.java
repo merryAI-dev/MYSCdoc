@@ -168,7 +168,7 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                 {
                   "worthRecording": true,
                   "title": "문서 제목, 60자 이내, 핵심을 요약하는 명사구",
-                  "summary": ["스레드 전체 흐름을 2~5개의 완결된 문장으로 요약. 시간 순서대로."],
+                  "summary": ["스레드 흐름을 시간 순서대로 요약한 문장 하나 (아래 '요약 작성 기준' 참고)"],
                   "decisionPoints": [
                     {
                       "decision": "확정된 결정 사항 한 문장",
@@ -190,6 +190,15 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                     }
                   ]
                 }
+
+                ## 요약 작성 기준 (summary)
+                이 요약은 조직의 아카이브 기록입니다 — 나중에 원문 스레드 없이 이 요약 문장들만 읽어도
+                "무엇이 문제/주제였고, 누가 무엇을 말했고, 어떻게 마무리됐는지"가 파악돼야 합니다. 부실하면
+                아카이브로서 의미가 없으니 다음을 지키세요:
+                - 2~5개의 완결된 한국어 문장, 시간 순서대로.
+                - 발화자를 빠짐없이 반영하되 이름을 그대로 옮기지 말고 역할로 쓰세요(예: "요청한 사람은", "담당자는").
+                - 숫자·기한·환경명·에러 메시지처럼 나중에 검색될 구체적 사실은 뭉뚱그리지 말고 그대로 남기세요.
+                - "논의가 있었다"처럼 내용 없이 뭉개는 문장 대신, 실제로 오간 내용을 구체적으로 쓰세요.
 
                 ## 규칙
                 - decisionPoints와 tacitKnowledge 중 **최소 하나는 비어있지 않아야** 합니다.
