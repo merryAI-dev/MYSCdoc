@@ -6,12 +6,14 @@ import com.mysc.mydoc.common.NotFoundException;
 import com.mysc.mydoc.domain.BlockType;
 import com.mysc.mydoc.domain.ChangeCause;
 import com.mysc.mydoc.domain.DocStatus;
+import com.mysc.mydoc.domain.KnowledgeSetting;
 import com.mysc.mydoc.domain.KnowledgeTriple;
 import com.mysc.mydoc.domain.SlackDecisionLog;
 import com.mysc.mydoc.domain.SourceType;
 import com.mysc.mydoc.ingest.SlackMessage;
 import com.mysc.mydoc.ingest.SystemMemberInitializer;
 import com.mysc.mydoc.repository.DocumentRepository;
+import com.mysc.mydoc.repository.KnowledgeSettingRepository;
 import com.mysc.mydoc.repository.KnowledgeTripleRepository;
 import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.SlackArchiveMessageRepository;
@@ -40,10 +42,9 @@ import org.springframework.util.StringUtils;
 public class DecisionExtractionJob {
     private static final Logger log = LoggerFactory.getLogger(DecisionExtractionJob.class);
 
-    // 스레드가 이 시간 동안 조용하면 "논의가 끝났다"고 보고 판별을 시작한다.
-    static final Duration QUIET_PERIOD = Duration.ofMinutes(30);
-    // 1~2개짜리 스레드는 의사결정일 가능성이 낮아 LLM 호출을 아낀다.
-    static final int MIN_MESSAGES = 3;
+    // 미세조정 기본값 — knowledge_setting 행이 있으면 그 값이 우선한다 (PUT /api/knowledge/settings).
+    static final int DEFAULT_QUIET_MINUTES = 30; // 이 시간 동안 조용하면 "논의가 끝났다"고 본다
+    static final int DEFAULT_MIN_MESSAGES = 3;   // 1~2개짜리 스레드는 의사결정일 가능성이 낮아 LLM 호출을 아낀다
 
     private final SlackArchiveMessageRepository archives;
     private final SlackDecisionLogRepository decisions;
@@ -51,6 +52,7 @@ public class DecisionExtractionJob {
     private final DocumentService documents;
     private final DocumentRepository documentRepository;
     private final KnowledgeTripleRepository triples;
+    private final KnowledgeSettingRepository settings;
     private final SpaceRepository spaces;
     private final MemberRepository members;
     private final ObjectMapper objectMapper;
@@ -64,6 +66,7 @@ public class DecisionExtractionJob {
             DocumentService documents,
             DocumentRepository documentRepository,
             KnowledgeTripleRepository triples,
+            KnowledgeSettingRepository settings,
             SpaceRepository spaces,
             MemberRepository members,
             ObjectMapper objectMapper,
@@ -76,6 +79,7 @@ public class DecisionExtractionJob {
         this.documents = documents;
         this.documentRepository = documentRepository;
         this.triples = triples;
+        this.settings = settings;
         this.spaces = spaces;
         this.members = members;
         this.objectMapper = objectMapper;
@@ -83,14 +87,16 @@ public class DecisionExtractionJob {
         this.defaultSpaceSlug = defaultSpaceSlug;
     }
 
-    @Scheduled(
-            fixedDelayString = "${mydoc.slack.decision-job-delay-ms:300000}",
-            initialDelayString = "${mydoc.slack.decision-job-initial-delay-ms:60000}")
+    // 기본: 매일 오후 6시(KST) — 하루치 논의를 퇴근 무렵에 한 번에 문서화한다.
+    @Scheduled(cron = "${mydoc.slack.decision-cron:0 0 18 * * *}", zone = "Asia/Seoul")
     public void run() {
         if (!StringUtils.hasText(defaultSpaceSlug)) {
             return;
         }
-        for (QuietThread thread : archives.findQuietThreads(MIN_MESSAGES, Instant.now().minus(QUIET_PERIOD))) {
+        var setting = settings.findById(KnowledgeSetting.SINGLETON_ID);
+        int quietMinutes = setting.map(KnowledgeSetting::getQuietMinutes).orElse(DEFAULT_QUIET_MINUTES);
+        int minMessages = setting.map(KnowledgeSetting::getMinMessages).orElse(DEFAULT_MIN_MESSAGES);
+        for (QuietThread thread : archives.findQuietThreads(minMessages, Instant.now().minus(Duration.ofMinutes(quietMinutes)))) {
             try {
                 process(thread);
             } catch (RuntimeException exception) {

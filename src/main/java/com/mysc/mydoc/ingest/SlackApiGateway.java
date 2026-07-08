@@ -82,6 +82,34 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
         }
     }
 
+    @Override
+    public List<SlackChannel> memberChannels() {
+        try {
+            List<SlackChannel> channels = new java.util.ArrayList<>();
+            String cursor = null;
+            do {
+                final String pageCursor = cursor;
+                var response = slack.conversationsList(request -> request
+                        .types(List.of(com.slack.api.model.ConversationType.PUBLIC_CHANNEL,
+                                com.slack.api.model.ConversationType.PRIVATE_CHANNEL))
+                        .limit(200)
+                        .cursor(pageCursor));
+                if (!response.isOk()) {
+                    throw new IllegalStateException("conversations.list failed: " + response.getError());
+                }
+                for (var conversation : response.getChannels()) {
+                    if (Boolean.TRUE.equals(conversation.isMember())) {
+                        channels.add(new SlackChannel(conversation.getId(), conversation.getName(), conversation.isPrivate()));
+                    }
+                }
+                cursor = response.getResponseMetadata() == null ? null : response.getResponseMetadata().getNextCursor();
+            } while (StringUtils.hasText(cursor));
+            return channels;
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     private String threadTs(String channelId, String messageTs) throws Exception {
         var response = slack.conversationsHistory(request -> request
                 .channel(channelId)

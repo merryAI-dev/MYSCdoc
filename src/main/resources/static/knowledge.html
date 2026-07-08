@@ -32,6 +32,23 @@
   #detail .stmt { margin-top: 6px; line-height: 1.5; }
   #emptyMsg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
               color: var(--dim); font-size: 14px; pointer-events: none; }
+  #gear { border: 1px solid var(--line); background: var(--sidebar); border-radius: 6px;
+          padding: 6px 10px; font-size: 13px; cursor: pointer; }
+  #gear:hover { background: var(--sidebar-hover); }
+  #settings { position: absolute; left: 16px; top: 16px; width: 360px; max-height: calc(100% - 32px);
+              overflow-y: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+              padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,.08); display: none; font-size: 13px; }
+  #settings h2 { font-size: 13px; margin: 0 0 8px; }
+  #settings h2 + p { color: var(--dim); font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+  #settings section + section { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .chRow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; gap: 8px; }
+  .chRow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chRow .lock { color: var(--dim); font-size: 11px; }
+  .knob { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+  .knob input { width: 80px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; }
+  #saveSettings { margin-top: 10px; padding: 6px 14px; border: none; border-radius: 5px;
+                  background: var(--accent); color: #fff; cursor: pointer; }
+  #settingsMsg { color: var(--dim); font-size: 12px; margin-left: 8px; }
 </style>
 </head>
 <body>
@@ -41,9 +58,24 @@
   <input id="q" placeholder="검색 (BM25) — 예: 배포, 결제, 알림…">
   <span id="count"></span>
   <span id="legend"></span>
+  <button id="gear">⚙ 설정</button>
 </header>
 <main>
   <canvas id="cv"></canvas>
+  <div id="settings">
+    <section>
+      <h2>아카이빙할 채널</h2>
+      <p>봇이 초대된 채널 중에서 여기서 켠 채널만 수집돼요. (초대만으로는 수집하지 않아요)</p>
+      <div id="chList">불러오는 중…</div>
+    </section>
+    <section>
+      <h2>추출 미세조정</h2>
+      <p>매일 오후 6시에 조용해진 스레드를 판별해요. 아래 값으로 대상을 조절할 수 있어요.</p>
+      <div class="knob"><label>스레드 침묵 기준 (분)</label><input id="quietMinutes" type="number" min="1" max="1440"></div>
+      <div class="knob"><label>최소 메시지 수</label><input id="minMessages" type="number" min="1" max="100"></div>
+      <button id="saveSettings">저장</button><span id="settingsMsg"></span>
+    </section>
+  </div>
   <div id="detail"></div>
   <div id="emptyMsg" style="display:none">아직 쌓인 지식 트리플이 없어요. Slack 논의가 수집되면 여기에 나타나요.</div>
 </main>
@@ -197,6 +229,70 @@ document.getElementById('q').addEventListener('input', ev => {
   clearTimeout(debounce)
   debounce = setTimeout(() => load(ev.target.value.trim()), 300)
 })
+
+// ---- 설정 패널: 채널 옵트인 + 추출 미세조정 ----
+const api = (path, opts = {}) => fetch(path, {
+  ...opts,
+  headers: { 'X-Member-Id': memberId, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+})
+const settingsEl = document.getElementById('settings')
+document.getElementById('gear').onclick = () => {
+  const open = settingsEl.style.display === 'block'
+  settingsEl.style.display = open ? 'none' : 'block'
+  if (!open) { loadChannels(); loadSettings() }
+}
+
+async function loadChannels() {
+  const list = document.getElementById('chList')
+  try {
+    const res = await api('/api/slack/channels')
+    if (!res.ok) throw new Error()
+    const { channels } = await res.json()
+    if (!channels.length) { list.textContent = '봇이 초대된 채널이 없어요. Slack에서 채널에 봇을 초대해 주세요.'; return }
+    list.innerHTML = ''
+    for (const ch of channels) {
+      const row = document.createElement('div')
+      row.className = 'chRow'
+      const name = document.createElement('span')
+      name.className = 'nm'
+      name.textContent = (ch.isPrivate ? '🔒 ' : '# ') + ch.channelName
+      const toggle = document.createElement('input')
+      toggle.type = 'checkbox'
+      toggle.checked = ch.archiveEnabled
+      toggle.onchange = async () => {
+        toggle.disabled = true
+        const res = await api('/api/slack/channels/' + ch.channelId, {
+          method: 'PUT',
+          body: JSON.stringify({ enabled: toggle.checked, channelName: ch.channelName }),
+        })
+        if (!res.ok) toggle.checked = !toggle.checked
+        toggle.disabled = false
+      }
+      row.append(name, toggle)
+      list.appendChild(row)
+    }
+  } catch { list.textContent = '채널 목록을 불러오지 못했어요 (Slack 연동 확인 필요).' }
+}
+
+async function loadSettings() {
+  const res = await api('/api/knowledge/settings')
+  if (!res.ok) return
+  const s = await res.json()
+  document.getElementById('quietMinutes').value = s.quietMinutes
+  document.getElementById('minMessages').value = s.minMessages
+}
+document.getElementById('saveSettings').onclick = async () => {
+  const msg = document.getElementById('settingsMsg')
+  const res = await api('/api/knowledge/settings', {
+    method: 'PUT',
+    body: JSON.stringify({
+      quietMinutes: Number(document.getElementById('quietMinutes').value),
+      minMessages: Number(document.getElementById('minMessages').value),
+    }),
+  })
+  msg.textContent = res.ok ? '저장됐어요 — 다음 오후 6시 실행부터 적용돼요.' : '저장에 실패했어요.'
+  setTimeout(() => { msg.textContent = '' }, 4000)
+}
 
 resize()
 load('')

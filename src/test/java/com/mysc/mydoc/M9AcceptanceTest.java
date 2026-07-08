@@ -52,8 +52,8 @@ class M9AcceptanceTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("mydoc.slack.default-space-slug", () -> "m9-space");
-        // 테스트 도중 스케줄러가 발화해 fake LLM 카운트를 오염시키지 않도록 늦춘다 — job.run()은 직접 호출한다
-        registry.add("mydoc.slack.decision-job-initial-delay-ms", () -> "3600000");
+        // 테스트 도중 스케줄러가 발화해 fake LLM 카운트를 오염시키지 않도록 끈다("-") — job.run()은 직접 호출한다
+        registry.add("mydoc.slack.decision-cron", () -> "-");
     }
 
     @TestConfiguration
@@ -88,6 +88,8 @@ class M9AcceptanceTest {
         jdbcTemplate.update("DELETE FROM knowledge_triple");
         jdbcTemplate.update("DELETE FROM slack_decision_log");
         jdbcTemplate.update("DELETE FROM slack_archive_message");
+        jdbcTemplate.update("DELETE FROM slack_channel_config");
+        jdbcTemplate.update("UPDATE knowledge_setting SET quiet_minutes = 30, min_messages = 3");
         jdbcTemplate.update("""
                 INSERT INTO space (id, slug, name, created_at)
                 VALUES (?, 'm9-space', 'M9 Space', ?)
@@ -104,17 +106,49 @@ class M9AcceptanceTest {
 
     @Test
     void archiveStoresMessagesAndDeduplicatesRedelivery() {
+        enableChannel("C_M9A");
         archive.archive("C_M9A", "1751800000.000100", null, "U1", "첫 메시지");
         archive.archive("C_M9A", "1751800001.000100", "1751800000.000100", "U2", "스레드 답장");
         // Slack 이벤트 재전달 시나리오 — 같은 (channel, ts)는 한 번만 저장된다
         archive.archive("C_M9A", "1751800000.000100", null, "U1", "첫 메시지");
         // 빈 본문/봇 필터를 통과 못 한 이벤트는 저장되지 않는다
         archive.archive("C_M9A", "1751800002.000100", null, "U3", " ");
+        // 설정에서 켜지 않은 채널은 봇이 초대돼 있어도 수집하지 않는다 (명시적 옵트인)
+        archive.archive("C_M9X", "1751800003.000100", null, "U1", "옵트인 안 된 채널");
 
         assertThat(count("SELECT COUNT(*) FROM slack_archive_message WHERE channel_id = 'C_M9A'")).isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM slack_archive_message WHERE channel_id = 'C_M9X'")).isEqualTo(0);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT thread_ts FROM slack_archive_message WHERE ts = '1751800001.000100'", String.class))
                 .isEqualTo("1751800000.000100");
+    }
+
+    @Test
+    void settingsApiTunesExtractionThresholds() {
+        // 채널 토글 API — 켜면 수집되고, 목록에 상태가 반영된다
+        ResponseEntity<Map> toggled = restTemplate.exchange(
+                "/api/slack/channels/C_M9S", HttpMethod.PUT,
+                entity(Map.of("enabled", true, "channelName", "m9-settings-test")), Map.class);
+        assertThat(toggled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<Map> channels = restTemplate.exchange(
+                "/api/slack/channels", HttpMethod.GET, entity(null), Map.class);
+        List<Map<String, Object>> channelList = (List<Map<String, Object>>) channels.getBody().get("channels");
+        assertThat(channelList).anySatisfy(ch -> {
+            assertThat(ch.get("channelId")).isEqualTo("C_M9S");
+            assertThat(ch.get("archiveEnabled")).isEqualTo(true);
+        });
+
+        // 미세조정 API — 최소 메시지 수를 2로 낮추면 2개짜리 조용한 스레드도 판별 대상이 된다
+        ResponseEntity<Map> updated = restTemplate.exchange(
+                "/api/knowledge/settings", HttpMethod.PUT,
+                entity(Map.of("quietMinutes", 30, "minMessages", 2)), Map.class);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(updated.getBody().get("minMessages")).isEqualTo(2);
+
+        seedQuietThread("C_M9S", "1751800600.000100", List.of("이슈 정리합시다", "네 그러시죠"));
+        llm.enqueue("{\"hasDecision\": false}");
+        job.run();
+        assertThat(llm.calls).isEqualTo(1); // 기본값(3)이었다면 0이어야 한다
     }
 
     @Test
@@ -267,8 +301,9 @@ class M9AcceptanceTest {
     void shortOrActiveThreadsAreNotExamined() {
         // 메시지 2개짜리 조용한 스레드 — MIN_MESSAGES 미달
         seedQuietThread("C_M9D", "1751800300.000100", List.of("메시지 하나", "메시지 둘"));
-        // 메시지 3개지만 방금 도착 — QUIET_PERIOD 미달 (backdate 없음)
+        // 메시지 3개지만 방금 도착 — 침묵 기준 미달 (backdate 없음)
         String activeRoot = "1751800400.000100";
+        enableChannel("C_M9E");
         archive.archive("C_M9E", activeRoot, null, "U1", "하나");
         archive.archive("C_M9E", "1751800401.000100", activeRoot, "U2", "둘");
         archive.archive("C_M9E", "1751800402.000100", activeRoot, "U3", "셋");
@@ -279,7 +314,16 @@ class M9AcceptanceTest {
         assertThat(llm.calls).isEqualTo(0);
     }
 
+    private void enableChannel(String channelId) {
+        jdbcTemplate.update("""
+                INSERT INTO slack_channel_config (channel_id, channel_name, archive_enabled, updated_at)
+                VALUES (?, ?, true, ?)
+                ON CONFLICT (channel_id) DO UPDATE SET archive_enabled = true
+                """, channelId, channelId, Timestamp.from(Instant.now()));
+    }
+
     private void seedQuietThread(String channel, String root, List<String> texts) {
+        enableChannel(channel);
         long rootSeconds = Long.parseLong(root.substring(0, root.indexOf('.')));
         for (int i = 0; i < texts.size(); i++) {
             String ts = i == 0 ? root : (rootSeconds + i) + ".000100";
