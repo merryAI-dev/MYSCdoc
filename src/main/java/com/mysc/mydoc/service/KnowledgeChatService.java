@@ -9,12 +9,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * 지식그래프를 위키 삼아 답하는 RAG 챗봇. 질문을 BM25로 검색해 관련 트리플만 뽑고,
- * 그 사실만 근거로 Gemini Flash가 비결정론적으로 답을 생성한다(미리 상정한 답이 아님).
+ * 지식그래프를 위키 삼아 답하는 RAG 챗봇. 질문을 BM25로 검색해 시드 트리플을 찾고,
+ * 그 시드의 주어/목적어가 등장하는 1홉 이웃 트리플까지 함께 근거로 삼는다 — 질문과
+ * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. Gemini Flash가 그 사실만
+ * 근거로 매번 새로 답을 생성한다(미리 상정한 답이 아님, 비결정론적).
  */
 @Service
 public class KnowledgeChatService {
-    private static final int RETRIEVE_LIMIT = 12;
+    private static final int SEED_LIMIT = 6;
+    private static final int RETRIEVE_LIMIT = 20;
 
     private static final String SYSTEM_PROMPT = """
             당신은 사내 지식그래프를 위키처럼 참고해 답하는 어시스턴트입니다.
@@ -44,7 +47,7 @@ public class KnowledgeChatService {
         if (client == null) {
             return new ChatAnswer("AI가 설정되지 않았어요 (GEMINI_API_KEY 필요).", List.of());
         }
-        List<ScoredTriple> hits = knowledge.search(question, RETRIEVE_LIMIT);
+        List<ScoredTriple> hits = knowledge.searchExpanded(question, SEED_LIMIT, RETRIEVE_LIMIT);
         if (hits.isEmpty()) {
             return new ChatAnswer("지식그래프에 아직 관련된 내용이 없어요. Slack 논의가 더 쌓이면 답할 수 있어요.", List.of());
         }

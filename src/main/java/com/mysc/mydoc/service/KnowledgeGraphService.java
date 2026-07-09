@@ -5,8 +5,10 @@ import com.mysc.mydoc.repository.KnowledgeTripleRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -48,6 +50,43 @@ public class KnowledgeGraphService {
         }
         ranked.sort(Comparator.comparingDouble(ScoredTriple::score).reversed());
         return ranked.stream().limit(limit).toList();
+    }
+
+    /**
+     * BM25로 시드 트리플을 찾고, 그 시드의 주어/목적어 개체명이 등장하는 다른 트리플(1홉 이웃)까지
+     * 함께 반환한다 — 질문과 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않기 위함(챗봇 근거용).
+     * 시드는 관련도순으로, 이웃은 그 뒤에 이어붙이며 전체는 totalLimit으로 캡한다.
+     */
+    @Transactional(readOnly = true)
+    public List<ScoredTriple> searchExpanded(String q, int seedLimit, int totalLimit) {
+        List<KnowledgeTriple> all = triples.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        if (all.isEmpty()) {
+            return List.of();
+        }
+        List<ScoredTriple> seeds = search(q, seedLimit);
+        if (seeds.isEmpty()) {
+            return List.of();
+        }
+        Set<String> entities = new LinkedHashSet<>();
+        Set<UUID> seedIds = new LinkedHashSet<>();
+        for (ScoredTriple seed : seeds) {
+            entities.add(seed.subject());
+            entities.add(seed.object());
+            seedIds.add(seed.id());
+        }
+        List<ScoredTriple> combined = new ArrayList<>(seeds);
+        for (KnowledgeTriple triple : all) {
+            if (combined.size() >= totalLimit) {
+                break;
+            }
+            if (seedIds.contains(triple.getId())) {
+                continue; // 이미 시드로 포함됨
+            }
+            if (entities.contains(triple.getSubject()) || entities.contains(triple.getObject())) {
+                combined.add(scored(triple, 0)); // 1홉 이웃 — 직접 매치가 아니므로 점수 0
+            }
+        }
+        return combined;
     }
 
     @Transactional(readOnly = true)
