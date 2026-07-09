@@ -94,8 +94,9 @@ public class DecisionExtractionJob {
     // 인스턴스가 여러 개면 DB 락이 필요한데, 이 잡은 배포상 단일 인스턴스로 고정한다(DEPLOY.md).
     private final java.util.concurrent.atomic.AtomicBoolean running = new java.util.concurrent.atomic.AtomicBoolean();
 
-    // 기본: 매일 오후 6시(KST) — 하루치 논의를 퇴근 무렵에 한 번에 문서화한다.
-    @Scheduled(cron = "${mydoc.slack.decision-cron:0 0 18 * * *}", zone = "Asia/Seoul")
+    // 기본: 30분마다 watch — 조용해진 스레드를 주기적으로 문서화해 지식그래프를 이어서 쌓는다.
+    // 이미 판별한 스레드는 lastTs가 같으면 건너뛰므로(LLM 호출 없음) 주기가 짧아도 비용은 새 논의 수만큼만 든다.
+    @Scheduled(cron = "${mydoc.slack.decision-cron:0 0,30 * * * *}", zone = "Asia/Seoul")
     public void run() {
         syncNow();
     }

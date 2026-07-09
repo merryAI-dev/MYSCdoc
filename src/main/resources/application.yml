@@ -27,7 +27,7 @@ mydoc:
     bot-token: ${SLACK_BOT_TOKEN:}
     app-token: ${SLACK_APP_TOKEN:}
     default-space-slug: ${SLACK_DEFAULT_SPACE_SLUG:}
-    decision-cron: ${SLACK_DECISION_CRON:0 0 18 * * *} # 의사결정 추출 잡, Asia/Seoul
+    decision-cron: ${SLACK_DECISION_CRON:0 0,30 * * * *} # 지식 추출 watch 주기(기본 30분), Asia/Seoul
   meet:
     google-application-credentials: ${GOOGLE_APPLICATION_CREDENTIALS:}
     subscribed-user: ${MEET_SUBSCRIBED_USER:}

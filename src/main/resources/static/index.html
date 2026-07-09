@@ -43,6 +43,8 @@
   #searchResults .hit .path { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   #knowledgeLink { display: block; margin: 0 8px 4px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); text-decoration: none; }
   #knowledgeLink:hover { background: var(--sidebar-hover); color: var(--ink); }
+  #tiroImport { display: block; width: calc(100% - 16px); margin: 0 8px 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); background: none; border: none; text-align: left; cursor: pointer; }
+  #tiroImport:hover { background: var(--sidebar-hover); color: var(--ink); }
   nav { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
   .spaceRow { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px; font-size: 11px; font-weight: 650; color: var(--muted); letter-spacing: 0; }
   .docRow { display: flex; align-items: center; gap: 7px; padding: 5px 8px; min-height: 30px; border-radius: 4px; font-size: 14px; cursor: pointer; color: var(--ink); }
@@ -148,6 +150,7 @@
       <div id="searchResults"></div>
     </div>
     <a id="knowledgeLink" href="/knowledge.html">🕸 지식그래프</a>
+    <button id="tiroImport">⇩ Tiro에서 가져오기</button>
     <nav id="nav"></nav>
   </aside>
   <main>
@@ -263,10 +266,6 @@ async function loadNav() {
       if (created) { await loadNav(); openDoc(created.id) }
     }
     nav.appendChild(add)
-    const tiro = document.createElement('button')
-    tiro.className = 'newDoc'; tiro.textContent = '⇩ Tiro에서 가져오기'
-    tiro.onclick = () => openTiroPicker(space.id)
-    nav.appendChild(tiro)
   }
   if (me.role === 'ADMIN') {
     const add = document.createElement('button')
@@ -390,20 +389,27 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt
 
 // ---------- Tiro 가져오기 ----------
 let tiroSearchTimer = null
-function openTiroPicker(spaceId) {
+$('tiroImport').onclick = () => openTiroPicker()
+function openTiroPicker() {
+  if (!spaces.length) { toast('먼저 스페이스를 만들어 주세요'); return }
   openPanel('Tiro에서 가져오기')
+  // 어느 스페이스에 넣을지 상단에서 한 번만 고른다.
   $('panelBody').innerHTML = `
+    <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">가져올 스페이스</label>
+    <select id="tiroSpace" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:4px;font-size:13px;margin-bottom:10px">
+      ${spaces.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+    </select>
     <input id="tiroSearch" placeholder="회의 제목으로 검색…" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:4px;font-size:13px;margin-bottom:10px">
     <div id="tiroList"></div>
   `
   const input = $('tiroSearch')
   input.addEventListener('input', () => {
     clearTimeout(tiroSearchTimer)
-    tiroSearchTimer = setTimeout(() => loadTiroNotes(input.value.trim(), spaceId), 300)
+    tiroSearchTimer = setTimeout(() => loadTiroNotes(input.value.trim()), 300)
   })
-  loadTiroNotes('', spaceId)
+  loadTiroNotes('')
 }
-async function loadTiroNotes(keyword, spaceId) {
+async function loadTiroNotes(keyword) {
   const list = $('tiroList')
   list.innerHTML = '<p style="color:var(--muted)">불러오는 중…</p>'
   let notes
@@ -419,14 +425,15 @@ async function loadTiroNotes(keyword, spaceId) {
       <button data-import="${n.guid}" style="margin-top:8px;padding:5px 10px;font-size:12.5px;border:1px solid var(--line);background:#fff;border-radius:4px">가져오기</button>
     </div>
   `).join('')
-  list.querySelectorAll('[data-import]').forEach(btn => btn.onclick = () => importTiroNote(btn.dataset.import, spaceId, btn))
+  list.querySelectorAll('[data-import]').forEach(btn => btn.onclick = () => importTiroNote(btn.dataset.import, btn))
 }
 function tiroPeople(note) {
   const owner = (note.collaborators || []).find(p => p.role === 'OWNER')
   const participants = (note.participants || []).map(p => p.name || p.email).filter(Boolean).slice(0, 3).join(', ')
   return [owner && `작성자 ${owner.name || owner.email}`, participants && `참석자 ${participants}`].filter(Boolean).join(' · ')
 }
-async function importTiroNote(noteGuid, spaceId, btn) {
+async function importTiroNote(noteGuid, btn) {
+  const spaceId = $('tiroSpace').value
   btn.disabled = true; btn.textContent = '가져오는 중…'
   try {
     const r = await api('POST', `/api/integrations/tiro/notes/${noteGuid}/import`, { spaceId })
