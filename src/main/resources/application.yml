@@ -35,6 +35,10 @@ mydoc:
     default-space-slug: ${MEET_DEFAULT_SPACE_SLUG:}
   tiro:
     api-key: ${TIRO_API_KEY:}
+  drive:
+    # M7(Meet)과 같은 서비스 계정 키를 재사용한다. 다만 도메인 위임 없이, 가져올 폴더를
+    # 서비스 계정 이메일에 뷰어로 직접 공유하는 방식이라 별도 관리자 설정이 필요 없다.
+    google-application-credentials: ${GOOGLE_APPLICATION_CREDENTIALS:}
   document-base-url: ${MYDOC_BASE_URL:http://localhost:8080}
   gemini:
     api-key: ${GEMINI_API_KEY:}

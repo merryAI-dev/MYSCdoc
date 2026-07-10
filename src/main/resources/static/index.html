@@ -43,8 +43,8 @@
   #searchResults .hit .path { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   #knowledgeLink { display: block; margin: 0 8px 4px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); text-decoration: none; }
   #knowledgeLink:hover { background: var(--sidebar-hover); color: var(--ink); }
-  #tiroImport { display: block; width: calc(100% - 16px); margin: 0 8px 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); background: none; border: none; text-align: left; cursor: pointer; }
-  #tiroImport:hover { background: var(--sidebar-hover); color: var(--ink); }
+  #tiroImport, #driveImport { display: block; width: calc(100% - 16px); margin: 0 8px 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); background: none; border: none; text-align: left; cursor: pointer; }
+  #tiroImport:hover, #driveImport:hover { background: var(--sidebar-hover); color: var(--ink); }
   nav { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
   .spaceRow { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px; font-size: 11px; font-weight: 650; color: var(--muted); letter-spacing: 0; }
   .docRow { display: flex; align-items: center; gap: 7px; padding: 5px 8px; min-height: 30px; border-radius: 4px; font-size: 14px; cursor: pointer; color: var(--ink); }
@@ -151,6 +151,7 @@
     </div>
     <a id="knowledgeLink" href="/knowledge.html">🕸 지식그래프</a>
     <button id="tiroImport">⇩ Tiro에서 가져오기</button>
+    <button id="driveImport">⇩ Google Drive에서 가져오기</button>
     <nav id="nav"></nav>
   </aside>
   <main>
@@ -442,6 +443,61 @@ async function importTiroNote(noteGuid, btn) {
     await loadNav()
     openDoc(r.documentId)
   } catch (e) { btn.disabled = false; btn.textContent = '가져오기'; toast(e.message) }
+}
+
+// ---------- Google Drive 회의록 마이그레이션 (일회성) ----------
+$('driveImport').onclick = () => openDrivePicker()
+function openDrivePicker() {
+  if (!spaces.length) { toast('먼저 스페이스를 만들어 주세요'); return }
+  openPanel('Google Drive에서 가져오기')
+  $('panelBody').innerHTML = `
+    <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">가져올 스페이스</label>
+    <select id="driveSpace" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:4px;font-size:13px;margin-bottom:10px">
+      ${spaces.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+    </select>
+    <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">회의록 폴더 링크 또는 ID</label>
+    <input id="driveFolder" placeholder="https://drive.google.com/drive/folders/…" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:4px;font-size:13px;margin-bottom:10px">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px">이 폴더를 서비스 계정 이메일에 "뷰어"로 미리 공유해 두어야 해요. 네이티브 Google Docs만 가져와요(하위 폴더 포함).</p>
+    <button id="driveBrowse" style="padding:6px 14px;border:1px solid var(--line);background:#fff;border-radius:5px">폴더 확인</button>
+    <span id="driveMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+    <div id="driveList" style="margin-top:12px"></div>
+  `
+  $('driveBrowse').onclick = browseDriveFolder
+}
+function driveFolderId() {
+  const raw = $('driveFolder').value.trim()
+  const m = raw.match(/folders\/([a-zA-Z0-9_-]+)/)
+  return m ? m[1] : raw
+}
+async function browseDriveFolder() {
+  const folderId = driveFolderId()
+  const msg = $('driveMsg'), list = $('driveList')
+  if (!folderId) { msg.textContent = '폴더 링크나 ID를 입력해 주세요.'; return }
+  msg.textContent = '확인 중…'; list.innerHTML = ''
+  try {
+    const r = await api('POST', '/api/integrations/drive/browse', { folderId })
+    if (!r.docs.length) { msg.textContent = '이 폴더에서 Google Docs를 찾지 못했어요 (공유 설정을 확인해 주세요).'; return }
+    msg.textContent = `${r.docs.length}개 문서를 찾았어요.`
+    list.innerHTML = `
+      <ul style="max-height:220px;overflow-y:auto;margin:0 0 10px;padding-left:18px;font-size:13px;color:var(--muted)">
+        ${r.docs.slice(0, 50).map(d => `<li>${esc(d.name)}</li>`).join('')}
+        ${r.docs.length > 50 ? `<li>… 외 ${r.docs.length - 50}개</li>` : ''}
+      </ul>
+      <button id="driveImportAll" style="padding:6px 14px;border:none;background:var(--accent, #2E75CC);color:#fff;border-radius:5px">전체 가져오기</button>
+    `
+    $('driveImportAll').onclick = () => importDriveFolder(folderId)
+  } catch (e) { msg.textContent = e.message }
+}
+async function importDriveFolder(folderId) {
+  const spaceId = $('driveSpace').value
+  const btn = $('driveImportAll'), msg = $('driveMsg')
+  btn.disabled = true; btn.textContent = '가져오는 중… (문서마다 시간이 걸려요)'
+  try {
+    const r = await api('POST', '/api/integrations/drive/import', { folderId, spaceId })
+    msg.textContent = `완료: ${r.found}개 중 ${r.imported}개 가져옴(그중 지식추출 ${r.documented}건), 이미 있어 건너뜀 ${r.skippedDuplicate}개, 실패 ${r.failed}개.`
+    btn.textContent = '전체 가져오기'; btn.disabled = false
+    await loadNav()
+  } catch (e) { btn.disabled = false; btn.textContent = '전체 가져오기'; msg.textContent = e.message }
 }
 
 // ---------- search ----------
