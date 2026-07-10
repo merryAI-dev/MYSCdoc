@@ -1,5 +1,9 @@
 package com.mysc.mydoc.api;
 
+import com.mysc.mydoc.service.GraphEmbeddingService;
+import com.mysc.mydoc.service.GraphEmbeddingService.Prediction;
+import com.mysc.mydoc.service.GraphEmbeddingService.TrainConfig;
+import com.mysc.mydoc.service.GraphEmbeddingService.TrainResult;
 import com.mysc.mydoc.service.KnowledgeChatService;
 import com.mysc.mydoc.service.KnowledgeChatService.ChatAnswer;
 import com.mysc.mydoc.service.KnowledgeGraphService;
@@ -16,14 +20,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class KnowledgeController {
     private final KnowledgeGraphService knowledge;
     private final KnowledgeChatService chat;
+    private final GraphEmbeddingService embedding;
 
-    public KnowledgeController(KnowledgeGraphService knowledge, KnowledgeChatService chat) {
+    public KnowledgeController(KnowledgeGraphService knowledge, KnowledgeChatService chat,
+                              GraphEmbeddingService embedding) {
         this.knowledge = knowledge;
         this.chat = chat;
+        this.embedding = embedding;
     }
 
     public record TripleListResponse(List<ScoredTriple> triples) {}
     public record ChatRequest(String question) {}
+    public record PredictionListResponse(List<Prediction> predictions) {}
 
     @GetMapping("/api/knowledge/triples")
     TripleListResponse triples(
@@ -45,5 +53,31 @@ public class KnowledgeController {
     @PostMapping("/api/knowledge/chat")
     ChatAnswer chat(@RequestBody ChatRequest request) {
         return chat.answer(request.question());
+    }
+
+    /**
+     * 지식그래프 임베딩(TransE)을 학습하고 그로킹 곡선을 돌려준다 (Gemini 안 씀 = 토큰 0원).
+     * weightDecay(λ)를 낮출수록 train loss는 일찍 떨어지는데 test 성능은 뒤늦게 오르는 그로킹이 커진다.
+     */
+    @PostMapping("/api/knowledge/embeddings/train")
+    TrainResult trainEmbeddings(
+            @RequestParam(defaultValue = "64") int dim,
+            @RequestParam(defaultValue = "400") int epochs,
+            @RequestParam(defaultValue = "0.05") double lr,
+            @RequestParam(defaultValue = "0.0001") double weightDecay,
+            @RequestParam(defaultValue = "1.0") double margin,
+            @RequestParam(defaultValue = "1.0") double initScale,
+            @RequestParam(defaultValue = "0.1") double testRatio
+    ) {
+        return embedding.train(new TrainConfig(dim, epochs, lr, weightDecay, margin, initScale, testRatio, 42L));
+    }
+
+    /** 특정 엔티티에서 나가는, 명시 안 된 그럴듯한 관계를 예측(추론) — 저장된 사실은 제외한다. */
+    @GetMapping("/api/knowledge/predict")
+    PredictionListResponse predict(
+            @RequestParam String entity,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        return new PredictionListResponse(embedding.predict(entity, limit));
     }
 }
