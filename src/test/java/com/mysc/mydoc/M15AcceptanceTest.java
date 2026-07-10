@@ -172,6 +172,56 @@ class M15AcceptanceTest {
                 "SELECT COUNT(*) FROM google_drive_ingest_log WHERE drive_file_id = 'doc-empty'", Integer.class)).isZero();
     }
 
+    @Test
+    void knowledgeSyncSkipsDocsWithTriplesAndBackfillsTheRest() {
+        driveGateway.docs.put("doc-a", new String[]{"결정 없는 회의록", "그냥 잡담만 했어요."});
+        driveGateway.docs.put("doc-b", new String[]{"백엔드 회의록", "배포는 목요일에 하기로 했다.\n담당은 상우."});
+        // import 시점엔 두 문서 다 지식 추출 실패(또는 미시도)로 트리플이 없다고 가정
+        llm.enqueue("{\"worthRecording\": false}");
+        llm.enqueue("{\"worthRecording\": false}");
+        ImportJobView imported = ingest.runImportSync("folder-3", spaceId, memberId);
+        assertThat(imported.documented()).isZero();
+
+        UUID docB = jdbcTemplate.queryForObject(
+                "SELECT document_id FROM google_drive_ingest_log WHERE drive_file_id = 'doc-b'", UUID.class);
+        // doc-a는 이미 지식 추출이 끝난 것처럼 트리플을 미리 심어 둔다 → 동기화에서 건너뛰어야 한다
+        UUID docA = jdbcTemplate.queryForObject(
+                "SELECT document_id FROM google_drive_ingest_log WHERE drive_file_id = 'doc-a'", UUID.class);
+        jdbcTemplate.update("""
+                INSERT INTO knowledge_triple (id, document_id, kind, statement, subject, predicate, object, channel_id, thread_ts, created_at)
+                VALUES (?, ?, 'decision', '기존 트리플', '팀', '결정했다', '기존 결정', 'drive', 'doc-a', ?)
+                """, UUID.randomUUID(), docA, Timestamp.from(Instant.now()));
+
+        // Drive를 다시 부르지 않고 저장된 블록에서 재구성해 doc-b만 새로 추출한다
+        int callsBefore = llm.calls;
+        llm.enqueue("""
+                {"worthRecording": true, "title": "배포 요일 결정",
+                 "summary": ["배포 요일을 목요일로 확정했어요."],
+                 "decisionPoints": [{"decision": "배포는 목요일에 해요.", "rationale": "", "alternatives": [],
+                   "owner": "상우", "condition": ""}],
+                 "tacitKnowledge": []}
+                """);
+        ImportJobView sync = ingest.runKnowledgeSyncNow();
+
+        assertThat(sync.status()).isEqualTo(JobStatus.DONE);
+        assertThat(sync.found()).isEqualTo(2);
+        assertThat(sync.documented()).isEqualTo(1);
+        assertThat(sync.skippedDuplicate()).isEqualTo(1);
+        assertThat(llm.calls).isEqualTo(callsBefore + 1);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM knowledge_triple WHERE document_id = ?", Integer.class, docA)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT subject FROM knowledge_triple WHERE document_id = ?", String.class, docB)).isEqualTo("상우");
+
+        // 다시 돌리면 이제 둘 다 트리플이 있어 완전히 건너뛰고 LLM도 안 부른다
+        int callsAfterFirstSync = llm.calls;
+        ImportJobView resync = ingest.runKnowledgeSyncNow();
+        assertThat(resync.skippedDuplicate()).isEqualTo(2);
+        assertThat(resync.documented()).isZero();
+        assertThat(llm.calls).isEqualTo(callsAfterFirstSync);
+    }
+
     static class FakeDriveGateway implements GoogleDriveGateway {
         final Map<String, String[]> docs = new LinkedHashMap<>(); // fileId -> {name, text}
 

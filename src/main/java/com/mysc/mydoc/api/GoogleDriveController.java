@@ -45,4 +45,13 @@ public class GoogleDriveController {
     ImportJobView status() {
         return ingest.status();
     }
+
+    /**
+     * 이미 가져온 Drive 문서들을 다시 훑어 지식그래프에 연결한다(Drive 재호출 없이 저장된 블록에서 재구성).
+     * import와 같은 잡 상태를 공유하므로 진행상황은 위 status()로 그대로 폴링할 수 있다.
+     */
+    @PostMapping("/api/integrations/drive/sync-knowledge")
+    ResponseEntity<ImportJobView> syncKnowledge() {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ingest.startKnowledgeSync());
+    }
 }

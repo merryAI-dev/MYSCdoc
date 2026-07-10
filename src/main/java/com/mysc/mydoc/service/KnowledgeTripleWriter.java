@@ -21,6 +21,11 @@ public class KnowledgeTripleWriter {
         this.triples = triples;
     }
 
+    /** 이 문서에서 이미 트리플을 뽑아낸 적이 있는지 — 재동기화 대상 선별용. */
+    public boolean hasTriples(UUID documentId) {
+        return triples.existsByDocumentId(documentId);
+    }
+
     /** 문서 블록과 항상 같은 내용을 가리키도록, 재추출 시 트리플도 통째로 교체한다. */
     public void replace(UUID documentId, DecisionExtract extract, String sourceLabel, String sourceRef) {
         triples.deleteByDocumentId(documentId);

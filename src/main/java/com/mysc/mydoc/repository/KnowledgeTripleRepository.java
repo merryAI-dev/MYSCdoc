@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.Modifying;
 public interface KnowledgeTripleRepository extends JpaRepository<KnowledgeTriple, UUID> {
     @Modifying
     void deleteByDocumentId(UUID documentId);
+
+    boolean existsByDocumentId(UUID documentId);
 }
