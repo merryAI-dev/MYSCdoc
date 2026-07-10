@@ -3,10 +3,12 @@ package com.mysc.mydoc.api;
 import com.mysc.mydoc.config.HeaderAuthFilter;
 import com.mysc.mydoc.ingest.drive.GoogleDriveGateway;
 import com.mysc.mydoc.ingest.drive.GoogleDriveIngestService;
-import com.mysc.mydoc.ingest.drive.GoogleDriveIngestService.ImportSummary;
+import com.mysc.mydoc.ingest.drive.GoogleDriveIngestService.ImportJobView;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,11 +31,18 @@ public class GoogleDriveController {
         return new BrowseResponse(ingest.browse(request.folderId()));
     }
 
+    /** 임포트를 백그라운드 잡으로 시작하고 즉시 202 + 잡 스냅샷을 돌려준다. 진행상황은 status 폴링. */
     @PostMapping("/api/integrations/drive/import")
-    ImportSummary importFolder(
+    ResponseEntity<ImportJobView> importFolder(
             @RequestBody ImportRequest request,
             @RequestAttribute(HeaderAuthFilter.MEMBER_ID_ATTRIBUTE) UUID memberId
     ) {
-        return ingest.importFolder(request.folderId(), request.spaceId(), memberId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(ingest.startImport(request.folderId(), request.spaceId(), memberId));
+    }
+
+    @GetMapping("/api/integrations/drive/import/status")
+    ImportJobView status() {
+        return ingest.status();
     }
 }

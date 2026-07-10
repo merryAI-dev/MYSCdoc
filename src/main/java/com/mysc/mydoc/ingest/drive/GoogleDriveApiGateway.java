@@ -1,10 +1,13 @@
 package com.mysc.mydoc.ingest.drive;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.web.client.ClientHttpRequestFactories;
+import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -14,13 +17,22 @@ import org.springframework.web.client.RestClient;
 public class GoogleDriveApiGateway implements GoogleDriveGateway {
     private static final String FOLDER_MIME = "application/vnd.google-apps.folder";
     private static final String DOC_MIME = "application/vnd.google-apps.document";
+    // 명시적 타임아웃 — 기본값을 쓰면 Slack SDK의 OkHttp(10초 read)가 픽업돼 큰 문서 export가
+    // 조용히 실패한다 (M2/M5에서 Gemini로 이미 당한 함정).
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
 
     private final GoogleDriveAccessTokenProvider tokens;
     private final RestClient restClient;
 
     public GoogleDriveApiGateway(GoogleDriveAccessTokenProvider tokens, RestClient.Builder restClientBuilder) {
         this.tokens = tokens;
-        this.restClient = restClientBuilder.baseUrl("https://www.googleapis.com/drive/v3").build();
+        this.restClient = restClientBuilder
+                .baseUrl("https://www.googleapis.com/drive/v3")
+                .requestFactory(ClientHttpRequestFactories.get(ClientHttpRequestFactorySettings.DEFAULTS
+                        .withConnectTimeout(CONNECT_TIMEOUT)
+                        .withReadTimeout(READ_TIMEOUT)))
+                .build();
     }
 
     @Override

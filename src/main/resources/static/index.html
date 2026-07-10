@@ -488,16 +488,37 @@ async function browseDriveFolder() {
     $('driveImportAll').onclick = () => importDriveFolder(folderId)
   } catch (e) { msg.textContent = e.message }
 }
+let drivePollTimer = null
 async function importDriveFolder(folderId) {
   const spaceId = $('driveSpace').value
   const btn = $('driveImportAll'), msg = $('driveMsg')
-  btn.disabled = true; btn.textContent = '가져오는 중… (문서마다 시간이 걸려요)'
+  btn.disabled = true; btn.textContent = '가져오는 중…'
   try {
-    const r = await api('POST', '/api/integrations/drive/import', { folderId, spaceId })
-    msg.textContent = `완료: ${r.found}개 중 ${r.imported}개 가져옴(그중 지식추출 ${r.documented}건), 이미 있어 건너뜀 ${r.skippedDuplicate}개, 실패 ${r.failed}개.`
-    btn.textContent = '전체 가져오기'; btn.disabled = false
-    await loadNav()
+    // 임포트는 문서당 수 초씩 걸리는 백그라운드 잡 — 시작만 하고 진행상황을 폴링한다.
+    await api('POST', '/api/integrations/drive/import', { folderId, spaceId })
+    pollDriveImport()
   } catch (e) { btn.disabled = false; btn.textContent = '전체 가져오기'; msg.textContent = e.message }
+}
+function pollDriveImport() {
+  clearTimeout(drivePollTimer)
+  drivePollTimer = setTimeout(async () => {
+    const btn = $('driveImportAll'), msg = $('driveMsg')
+    try {
+      const j = await api('GET', '/api/integrations/drive/import/status')
+      if (j.status === 'RUNNING') {
+        if (msg) msg.textContent = `진행 중 ${j.processed}/${j.found}… ${j.currentDoc ? '(' + j.currentDoc + ')' : ''}`
+        pollDriveImport()
+        return
+      }
+      if (msg) {
+        msg.textContent = j.status === 'FAILED'
+            ? `실패: ${j.error || '알 수 없는 오류'}`
+            : `완료: ${j.found}개 중 ${j.imported}개 가져옴(그중 지식추출 ${j.documented}건), 건너뜀 ${j.skippedDuplicate}개, 실패 ${j.failed}개.`
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '전체 가져오기' }
+      await loadNav()
+    } catch { pollDriveImport() /* 일시적 네트워크 오류면 계속 폴링 */ }
+  }, 2000)
 }
 
 // ---------- search ----------
