@@ -64,6 +64,10 @@ public class GoogleDriveApiGateway implements GoogleDriveGateway {
                             .queryParam("q", "'" + folderId + "' in parents and trashed = false")
                             .queryParam("fields", "nextPageToken, files(id, name, mimeType)")
                             .queryParam("pageSize", 200)
+                            // 회사 회의록 폴더는 보통 공유 드라이브(Shared Drive)라, 이 두 플래그가
+                            // 없으면 서비스 계정에 뷰어 권한이 있어도 목록이 조용히 빈 배열로 나온다.
+                            .queryParam("supportsAllDrives", true)
+                            .queryParam("includeItemsFromAllDrives", true)
                             .queryParamIfPresent("pageToken", java.util.Optional.ofNullable(cursor))
                             .build())
                     .header("Authorization", "Bearer " + tokens.bearerToken())
@@ -83,6 +87,7 @@ public class GoogleDriveApiGateway implements GoogleDriveGateway {
                 .uri(builder -> builder
                         .path("/files/{fileId}/export")
                         .queryParam("mimeType", "text/plain")
+                        .queryParam("supportsAllDrives", true)
                         .build(fileId))
                 .header("Authorization", "Bearer " + tokens.bearerToken())
                 .retrieve()
