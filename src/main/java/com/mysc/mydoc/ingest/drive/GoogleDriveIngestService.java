@@ -14,6 +14,7 @@ import com.mysc.mydoc.ingest.archive.DecisionExtractPort;
 import com.mysc.mydoc.repository.BlockRepository;
 import com.mysc.mydoc.repository.DocumentRepository;
 import com.mysc.mydoc.repository.GoogleDriveIngestLogRepository;
+import com.mysc.mydoc.repository.TiroIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
 import com.mysc.mydoc.service.KnowledgeTripleWriter;
@@ -27,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +63,7 @@ public class GoogleDriveIngestService {
     private final DocumentRepository documentRepository;
     private final BlockRepository blockRepository;
     private final GoogleDriveIngestLogRepository ingestLogs;
+    private final TiroIngestLogRepository tiroIngestLogs;
     private final DecisionExtractPort extractor;
     private final KnowledgeTripleWriter tripleWriter;
     private final ObjectMapper objectMapper;
@@ -80,6 +83,7 @@ public class GoogleDriveIngestService {
             DocumentRepository documentRepository,
             BlockRepository blockRepository,
             GoogleDriveIngestLogRepository ingestLogs,
+            TiroIngestLogRepository tiroIngestLogs,
             DecisionExtractPort extractor,
             KnowledgeTripleWriter tripleWriter,
             ObjectMapper objectMapper,
@@ -90,6 +94,7 @@ public class GoogleDriveIngestService {
         this.documentRepository = documentRepository;
         this.blockRepository = blockRepository;
         this.ingestLogs = ingestLogs;
+        this.tiroIngestLogs = tiroIngestLogs;
         this.extractor = extractor;
         this.tripleWriter = tripleWriter;
         this.objectMapper = objectMapper;
@@ -171,6 +176,11 @@ public class GoogleDriveIngestService {
 
     /** 동기 실행 — 프로덕션 경로(startImport)와 같은 워커 로직을 그대로 태운다. 테스트·운영 스크립트용. */
     public ImportJobView runImportSync(String folderId, UUID spaceId, UUID memberId) {
+        // 동기 경로도 running 락을 잡는다 — 백그라운드 잡과 겹쳐 Gemini를 동시에 때리지 않도록.
+        if (!running.compareAndSet(false, true)) {
+            ImportJob existing = currentJob;
+            return existing != null ? existing.view() : status();
+        }
         ImportJob job = new ImportJob();
         currentJob = job;
         try {
@@ -179,17 +189,22 @@ public class GoogleDriveIngestService {
         } catch (RuntimeException exception) {
             job.status = JobStatus.FAILED;
             job.error = exception.getMessage();
+        } finally {
+            running.set(false);
         }
         return job.view();
     }
 
     /**
-     * 이미 가져온 Drive 문서들(GoogleDriveIngestLog)을 다시 훑어 지식그래프에 연결한다.
-     * Drive를 다시 호출하지 않고 이미 저장된 블록에서 원문을 재구성한다 — import 시점에
+     * 이미 가져온 문서들(Drive + Tiro ingest 로그)을 다시 훑어 지식그래프에 연결한다.
+     * 원본 API를 다시 호출하지 않고 이미 저장된 블록에서 원문을 재구성한다 — import 시점에
      * 추출이 실패했거나 아예 시도되지 않았던 문서를 나중에 수동으로 따라잡기 위한 버튼.
      * import와 같은 running 락/워커를 공유해 Gemini 호출이 동시에 겹치지 않게 한다.
+     *
+     * @param force true면 이미 트리플이 있는 문서도 다시 추출한다 — 추출 스키마가 바뀌었을 때
+     *              (예: M16 개체 명사구 강제) 기존 그래프를 새 스키마로 재구축하는 용도.
      */
-    public ImportJobView startKnowledgeSync() {
+    public ImportJobView startKnowledgeSync(boolean force) {
         if (!running.compareAndSet(false, true)) {
             ImportJob existing = currentJob;
             return existing != null ? existing.view() : status();
@@ -198,12 +213,12 @@ public class GoogleDriveIngestService {
         currentJob = job;
         worker.submit(() -> {
             try {
-                runKnowledgeSync(job);
+                runKnowledgeSync(job, force);
                 job.status = JobStatus.DONE;
             } catch (RuntimeException exception) {
                 job.status = JobStatus.FAILED;
                 job.error = exception.getMessage();
-                log.error("Google Drive 지식 동기화 잡 실패", exception);
+                log.error("지식 동기화 잡 실패", exception);
             } finally {
                 running.set(false);
             }
@@ -212,15 +227,21 @@ public class GoogleDriveIngestService {
     }
 
     /** 동기 실행 — runImportSync와 같은 원칙(테스트·운영 스크립트용). */
-    public ImportJobView runKnowledgeSyncNow() {
+    public ImportJobView runKnowledgeSyncNow(boolean force) {
+        if (!running.compareAndSet(false, true)) {
+            ImportJob existing = currentJob;
+            return existing != null ? existing.view() : status();
+        }
         ImportJob job = new ImportJob();
         currentJob = job;
         try {
-            runKnowledgeSync(job);
+            runKnowledgeSync(job, force);
             job.status = JobStatus.DONE;
         } catch (RuntimeException exception) {
             job.status = JobStatus.FAILED;
             job.error = exception.getMessage();
+        } finally {
+            running.set(false);
         }
         return job.view();
     }
@@ -281,57 +302,79 @@ public class GoogleDriveIngestService {
         return extract.isPresent();
     }
 
-    // ── 지식 동기화 워커 (재추출 전용, Drive 재호출 없음) ──────────────────
-    private void runKnowledgeSync(ImportJob job) {
-        List<GoogleDriveIngestLog> logs = ingestLogs.findAll();
-        job.found = logs.size();
-        for (GoogleDriveIngestLog entry : logs) {
-            job.currentDoc = entry.getDriveFileId();
+    // ── 지식 동기화 워커 (재추출 전용, 원본 API 재호출 없음) ──────────────────
+    private record SyncTarget(UUID documentId, String sourceLabel, String sourceRef) {}
+
+    private void runKnowledgeSync(ImportJob job, boolean force) {
+        List<SyncTarget> targets = new ArrayList<>();
+        for (GoogleDriveIngestLog entry : ingestLogs.findAll()) {
+            targets.add(new SyncTarget(entry.getDocumentId(), "drive", entry.getDriveFileId()));
+        }
+        for (var entry : tiroIngestLogs.findAll()) {
+            targets.add(new SyncTarget(entry.getDocumentId(), "tiro", entry.getNoteGuid()));
+        }
+        job.found = targets.size();
+        for (SyncTarget target : targets) {
+            job.currentDoc = target.sourceLabel() + ":" + target.sourceRef();
             try {
-                if (syncDocKnowledge(entry.getDocumentId(), entry.getDriveFileId())) {
+                if (syncDocKnowledge(target, force)) {
                     job.documented++;
                 } else {
                     job.skippedDuplicate++; // 이미 트리플이 있거나 본문이 비어 건너뜀
                 }
             } catch (RuntimeException exception) {
                 job.failed++;
-                log.warn("Google Drive 지식 동기화 실패: {}", entry.getDriveFileId(), exception);
+                log.warn("지식 동기화 실패: {}", target, exception);
             }
             job.processed++;
         }
         job.currentDoc = "";
     }
 
-    private boolean syncDocKnowledge(UUID documentId, String driveFileId) {
-        if (tripleWriter.hasTriples(documentId)) {
+    private boolean syncDocKnowledge(SyncTarget target, boolean force) {
+        if (!force && tripleWriter.hasTriples(target.documentId())) {
             return false;
         }
-        var document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new ValidationException("문서를 찾을 수 없어요: " + documentId));
-        String text = reconstructText(documentId);
+        var document = documentRepository.findById(target.documentId())
+                .orElseThrow(() -> new ValidationException("문서를 찾을 수 없어요: " + target.documentId()));
+        String text = reconstructText(target.documentId());
         if (!StringUtils.hasText(text)) {
             return false;
         }
         String truncated = text.length() > MAX_EXTRACT_CHARS ? text.substring(0, MAX_EXTRACT_CHARS) : text;
-        List<SlackMessage> pseudoThread = List.of(new SlackMessage("drive", document.getTitle(), truncated, driveFileId));
+        List<SlackMessage> pseudoThread =
+                List.of(new SlackMessage(target.sourceLabel(), document.getTitle(), truncated, target.sourceRef()));
         Optional<DecisionExtract> extract;
         try {
             extract = extractor.extract(pseudoThread);
         } catch (RuntimeException exception) {
-            log.warn("Google Drive 지식 재추출 실패: {}", document.getTitle(), exception);
+            log.warn("지식 재추출 실패: {}", document.getTitle(), exception);
             return false;
         }
-        extract.ifPresent(value ->
-                tx.executeWithoutResult(status -> tripleWriter.replace(documentId, value, "drive", driveFileId)));
+        extract.ifPresent(value -> tx.executeWithoutResult(status ->
+                tripleWriter.replace(target.documentId(), value, target.sourceLabel(), target.sourceRef())));
         pace();
         return extract.isPresent();
     }
 
-    /** 저장된 블록(ProseMirror 스타일 JSON)에서 평문을 재구성한다 — Drive export를 다시 부르지 않는다. */
+    // Tiro 임포트가 심는 구조 블록/메타데이터 — 재추출 입력에서 걸러 임포트 시점의 순수 전사와 맞춘다.
+    private static final Pattern TIRO_META_LINE =
+            Pattern.compile("^(작성자|참석자|녹음 시작|길이|출처)\\s*:.*");
+    private static final Pattern LEADING_TIMECODE =
+            Pattern.compile("^\\[[^\\]]{1,40}\\]\\s*");
+
+    /**
+     * 저장된 블록(ProseMirror 스타일 JSON)에서 평문을 재구성한다 — 원본 API를 다시 부르지 않는다.
+     * 재추출 입력을 임포트 시점 입력과 맞추기 위해 제목/메타데이터 블록은 제외하고 타임코드 접두는 벗긴다
+     * (Drive 문서는 이런 블록이 없어 영향 없음. Tiro 회의록만 회의 정보·참석자·출처·타임코드를 갖는다).
+     */
     private String reconstructText(UUID documentId) {
         return blockRepository.findByDocumentIdOrderByPosition(documentId).stream()
+                .filter(block -> block.getType() == BlockType.PARAGRAPH) // 헤딩(회의 정보/전사 원문/Tiro 요약) 제외
                 .map(this::blockText)
+                .map(text -> LEADING_TIMECODE.matcher(text).replaceFirst(""))
                 .filter(StringUtils::hasText)
+                .filter(text -> !TIRO_META_LINE.matcher(text).matches())
                 .collect(Collectors.joining("\n"));
     }
 

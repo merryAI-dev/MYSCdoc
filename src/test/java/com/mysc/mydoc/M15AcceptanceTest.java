@@ -116,7 +116,7 @@ class M15AcceptanceTest {
                 {"worthRecording": true, "title": "배포 요일 결정",
                  "summary": ["배포 요일을 화요일로 확정했어요."],
                  "decisionPoints": [{"decision": "배포는 화요일에 해요.", "rationale": "", "alternatives": [],
-                   "owner": "민지", "condition": ""}],
+                   "owner": "민지", "condition": "", "topic": "배포 요일"}],
                  "tacitKnowledge": []}
                 """);
         llm.enqueue("{\"worthRecording\": false}");
@@ -198,10 +198,10 @@ class M15AcceptanceTest {
                 {"worthRecording": true, "title": "배포 요일 결정",
                  "summary": ["배포 요일을 목요일로 확정했어요."],
                  "decisionPoints": [{"decision": "배포는 목요일에 해요.", "rationale": "", "alternatives": [],
-                   "owner": "상우", "condition": ""}],
+                   "owner": "상우", "condition": "", "topic": "배포 요일"}],
                  "tacitKnowledge": []}
                 """);
-        ImportJobView sync = ingest.runKnowledgeSyncNow();
+        ImportJobView sync = ingest.runKnowledgeSyncNow(false);
 
         assertThat(sync.status()).isEqualTo(JobStatus.DONE);
         assertThat(sync.found()).isEqualTo(2);
@@ -216,7 +216,7 @@ class M15AcceptanceTest {
 
         // 다시 돌리면 이제 둘 다 트리플이 있어 완전히 건너뛰고 LLM도 안 부른다
         int callsAfterFirstSync = llm.calls;
-        ImportJobView resync = ingest.runKnowledgeSyncNow();
+        ImportJobView resync = ingest.runKnowledgeSyncNow(false);
         assertThat(resync.skippedDuplicate()).isEqualTo(2);
         assertThat(resync.documented()).isZero();
         assertThat(llm.calls).isEqualTo(callsAfterFirstSync);

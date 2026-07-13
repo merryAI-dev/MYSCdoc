@@ -152,7 +152,7 @@
     <a id="knowledgeLink" href="/knowledge.html">🕸 지식그래프</a>
     <button id="tiroImport">⇩ Tiro에서 가져오기</button>
     <button id="driveImport">⇩ Google Drive에서 가져오기</button>
-    <button id="driveSyncKnowledge">🔗 Drive 지식그래프 동기화</button>
+    <button id="driveSyncKnowledge">🔗 지식그래프 동기화 (Drive·Tiro)</button>
     <nav id="nav"></nav>
   </aside>
   <main>
@@ -526,7 +526,10 @@ function pollDriveImport() {
 $('driveSyncKnowledge').onclick = async () => {
   openPanel('Drive 지식그래프 동기화')
   $('panelBody').innerHTML = `
-    <p style="font-size:13px;color:var(--muted);margin-bottom:10px">이미 가져온 Google Drive 문서 중 아직 지식그래프에 연결되지 않은 것들을 다시 추출해요.</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:10px">이미 가져온 Google Drive·Tiro 문서 중 아직 지식그래프에 연결되지 않은 것들을 다시 추출해요.</p>
+    <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:10px">
+      <input type="checkbox" id="driveSyncForce"> 이미 연결된 문서도 다시 추출 (추출 규칙이 바뀌었을 때 — AI 호출이 문서 수만큼 발생해요)
+    </label>
     <button id="driveSyncStart" style="padding:6px 14px;border:none;background:var(--accent, #2E75CC);color:#fff;border-radius:5px">동기화 시작</button>
     <span id="driveSyncMsg" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
   `
@@ -537,7 +540,8 @@ async function startDriveKnowledgeSync() {
   const btn = $('driveSyncStart'), msg = $('driveSyncMsg')
   btn.disabled = true; btn.textContent = '동기화 중…'
   try {
-    await api('POST', '/api/integrations/drive/sync-knowledge', {})
+    const force = $('driveSyncForce') && $('driveSyncForce').checked
+    await api('POST', '/api/integrations/drive/sync-knowledge' + (force ? '?force=true' : ''), {})
     pollDriveKnowledgeSync()
   } catch (e) { btn.disabled = false; btn.textContent = '동기화 시작'; msg.textContent = e.message }
 }

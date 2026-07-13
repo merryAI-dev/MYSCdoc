@@ -159,7 +159,7 @@ class M9AcceptanceTest {
                 {"worthRecording": true, "title": "브랜치 전략 결정",
                  "summary": ["브랜치 전략을 trunk 기반으로 확정했어요."],
                  "decisionPoints": [{"decision": "trunk 기반 브랜치 전략을 써요.",
-                   "rationale": "", "alternatives": [], "owner": "", "condition": ""}],
+                   "rationale": "", "alternatives": [], "owner": "", "condition": "", "topic": "브랜치 전략"}],
                  "tacitKnowledge": []}
                 """);
 
@@ -216,7 +216,7 @@ class M9AcceptanceTest {
                 {"worthRecording": true, "title": "배포 요일 결정",
                  "summary": ["배포 요일에 대한 논의가 있었고, 화요일로 확정됐어요."],
                  "decisionPoints": [{"decision": "배포는 매주 화요일에 해요.",
-                   "rationale": "주말 직후 장애 대응이 어려워요.", "alternatives": [], "owner": "", "condition": ""}],
+                   "rationale": "주말 직후 장애 대응이 어려워요.", "alternatives": [], "owner": "", "condition": "", "topic": "배포 요일"}],
                  "tacitKnowledge": [{"kind": "constraint",
                    "statement": "주말 직후에는 장애 대응 인력이 부족해요.",
                    "triples": [{"subject": "주말 직후 배포", "predicate": "어렵게 만든다", "object": "장애 대응"}]}]}
@@ -262,7 +262,7 @@ class M9AcceptanceTest {
                 {"worthRecording": true, "title": "배포 요일 결정",
                  "summary": ["배포 요일이 화요일로 확정된 뒤, 공휴일 예외가 추가로 논의됐어요."],
                  "decisionPoints": [{"decision": "배포는 매주 화요일에 하고, 공휴일이면 수요일로 미뤄요.",
-                   "rationale": "", "alternatives": [], "owner": "", "condition": "공휴일인 경우"}],
+                   "rationale": "", "alternatives": [], "owner": "", "condition": "공휴일인 경우", "topic": "배포 요일"}],
                  "tacitKnowledge": []}
                 """);
         job.run();
@@ -273,8 +273,12 @@ class M9AcceptanceTest {
         assertThat(updated).contains("공휴일이면 수요일로 미뤄요");
         // 재추출 시 트리플도 통째로 교체된다 — 두 번째 fake는 tacitKnowledge가 비어 decision 1건만 남는다
         assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(1);
+        // M16: 그래프 노드(object)는 결정 문장이 아니라 topic 명사구 — 결정 문장은 statement에 남는다
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT object FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
+                .isEqualTo("배포 요일");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT statement FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
                 .contains("공휴일이면 수요일로 미뤄요");
     }
 

@@ -175,7 +175,8 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                       "rationale": "그렇게 결정한 이유나 근거. 스레드에 없으면 빈 문자열.",
                       "alternatives": ["검토했지만 채택하지 않은 대안. 없으면 빈 배열."],
                       "owner": "이 결정의 실행/책임 주체로 스레드에서 지목된 사람이나 팀. 없으면 빈 문자열.",
-                      "condition": "이 결정이 적용되는 조건이나 예외(예: '공휴일이면 예외'). 없으면 빈 문자열."
+                      "condition": "이 결정이 적용되는 조건이나 예외(예: '공휴일이면 예외'). 없으면 빈 문자열.",
+                      "topic": "결정의 대상을 가리키는 짧은 명사구 (예: '결제 재시도 횟수', '배포 요일'). 문장 금지."
                     }
                   ],
                   "tacitKnowledge": [
@@ -190,6 +191,15 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                     }
                   ]
                 }
+
+                ## 개체(subject/object/topic/owner) 작성 규칙 — 가장 중요
+                이 값들은 지식그래프의 '노드'가 됩니다. 노드는 서로 연결되어야 가치가 있으므로:
+                - 반드시 **짧은 명사구**(40자 이내)로 쓰세요. "결제 API", "MYSC", "환경부 실증사업"처럼요.
+                - **완결 문장을 절대 넣지 마세요.** "~해요/했어요/한다/합니다"로 끝나면 무효 처리되어 버려집니다.
+                  서술이 필요한 내용은 statement/decision 필드에 쓰세요 — 역할이 다릅니다.
+                - 개체 하나에 **하나의 실체만** 넣으세요. "혜윰, 보람"처럼 병기하지 말고 트리플을 나누세요.
+                - 회사·팀·사람·시스템의 이름은 문서마다 다르게 부르지 말고 가장 공식적인 하나의 표기로 쓰세요
+                  (예: "엠와이소셜컴퍼니"가 아니라 "MYSC").
 
                 ## 요약 작성 기준 (summary)
                 이 요약은 조직의 아카이브 기록입니다 — 나중에 원문 스레드 없이 이 요약 문장들만 읽어도
@@ -219,7 +229,7 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                              "재시도 횟수를 3회로 제한하기로 확정했고, 민지가 반영을 맡기로 했어요."],
                  "decisionPoints": [{"decision": "결제 재시도는 3회 실패 시 중단해요.",
                    "rationale": "5회는 과도하다는 판단이 있었어요.", "alternatives": ["5회 재시도"],
-                   "owner": "민지", "condition": ""}],
+                   "owner": "민지", "condition": "", "topic": "결제 재시도 횟수"}],
                  "tacitKnowledge": [{"kind": "constraint",
                    "statement": "결제 재시도 로직은 실패 횟수 상한이 없으면 야간 알림 과다를 유발해요.",
                    "triples": [{"subject": "결제 재시도 로직", "predicate": "유발한다", "object": "야간 알림 과다"}]}]}

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -47,11 +48,12 @@ public class GoogleDriveController {
     }
 
     /**
-     * 이미 가져온 Drive 문서들을 다시 훑어 지식그래프에 연결한다(Drive 재호출 없이 저장된 블록에서 재구성).
-     * import와 같은 잡 상태를 공유하므로 진행상황은 위 status()로 그대로 폴링할 수 있다.
+     * 이미 가져온 문서들(Drive + Tiro)을 다시 훑어 지식그래프에 연결한다(원본 API 재호출 없이
+     * 저장된 블록에서 재구성). import와 같은 잡 상태를 공유하므로 진행상황은 위 status()로 폴링한다.
+     * force=true면 이미 트리플이 있는 문서도 재추출한다 — 추출 스키마 변경 후 전체 재구축용.
      */
     @PostMapping("/api/integrations/drive/sync-knowledge")
-    ResponseEntity<ImportJobView> syncKnowledge() {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ingest.startKnowledgeSync());
+    ResponseEntity<ImportJobView> syncKnowledge(@RequestParam(defaultValue = "false") boolean force) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ingest.startKnowledgeSync(force));
     }
 }

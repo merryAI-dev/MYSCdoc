@@ -8,47 +8,68 @@ import com.mysc.mydoc.domain.ChangeCause;
 import com.mysc.mydoc.domain.Member;
 import com.mysc.mydoc.domain.SourceType;
 import com.mysc.mydoc.domain.TiroIngestLog;
+import com.mysc.mydoc.ingest.SlackMessage;
 import com.mysc.mydoc.ingest.SystemMemberInitializer;
+import com.mysc.mydoc.ingest.archive.DecisionExtract;
+import com.mysc.mydoc.ingest.archive.DecisionExtractPort;
 import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.TiroIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
+import com.mysc.mydoc.service.KnowledgeTripleWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 @Service
 public class TiroIngestService {
+    private static final Logger log = LoggerFactory.getLogger(TiroIngestService.class);
+    // Drive 임포트와 같은 원칙: Gemini 입력 폭주 방지 절단 상한.
+    private static final int MAX_EXTRACT_CHARS = 400_000;
+
     private final ObjectProvider<TiroPort> client;
     private final DocumentService documents;
     private final TiroIngestLogRepository ingestLogs;
     private final MemberRepository members;
+    private final DecisionExtractPort extractor;
+    private final KnowledgeTripleWriter tripleWriter;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate tx;
 
     public TiroIngestService(
             ObjectProvider<TiroPort> client,
             DocumentService documents,
             TiroIngestLogRepository ingestLogs,
             MemberRepository members,
-            ObjectMapper objectMapper
+            DecisionExtractPort extractor,
+            KnowledgeTripleWriter tripleWriter,
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager
     ) {
         this.client = client;
         this.documents = documents;
         this.ingestLogs = ingestLogs;
         this.members = members;
+        this.extractor = extractor;
+        this.tripleWriter = tripleWriter;
         this.objectMapper = objectMapper;
+        this.tx = new TransactionTemplate(transactionManager);
     }
 
     public List<TiroNoteSummary> browse(String keyword) {
         return client().listNotes(keyword);
     }
 
-    @Transactional
     public UUID importNote(String noteGuid, UUID spaceId, UUID memberId) {
         var existing = ingestLogs.findByNoteGuid(noteGuid);
         if (existing.isPresent()) {
@@ -64,11 +85,52 @@ public class TiroIngestService {
             throw new ValidationException("Tiro 노트에 전사 내용이 없어요.");
         }
 
+        // 문서 생성·블록·dedup 로그는 한 트랜잭션으로 (Drive와 동일 — 고아 문서 방지),
+        // LLM 호출은 트랜잭션 밖에서 — 추출이 실패해도 원문 임포트는 이미 커밋돼 있다.
         UUID ownerId = ownerId(note, memberId);
-        var document = documents.create(spaceId, note.title(), ownerId);
-        documents.replaceBlocks(document.getId(), blocks(note, transcript), ownerId, ChangeCause.IMPORT);
-        ingestLogs.save(new TiroIngestLog(noteGuid, document.getId()));
-        return document.getId();
+        UUID documentId;
+        try {
+            documentId = tx.execute(status -> {
+                var document = documents.create(spaceId, note.title(), ownerId);
+                documents.replaceBlocks(document.getId(), blocks(note, transcript), ownerId, ChangeCause.IMPORT);
+                ingestLogs.save(new TiroIngestLog(noteGuid, document.getId()));
+                return document.getId();
+            });
+        } catch (DataIntegrityViolationException race) {
+            // 동시 임포트(버튼 연타·재시도)로 note_guid UNIQUE가 먼저 커밋됐다 — 멱등하게 기존 문서를 돌려준다.
+            return ingestLogs.findByNoteGuid(noteGuid)
+                    .map(TiroIngestLog::getDocumentId)
+                    .orElseThrow(() -> race);
+        }
+        extractKnowledge(documentId, note.title(), noteGuid, transcriptText(transcript));
+        return documentId;
+    }
+
+    /** Slack·Drive와 같은 추출 파이프라인으로 회의록 지식을 그래프에 반영한다. */
+    private void extractKnowledge(UUID documentId, String title, String noteGuid, String text) {
+        if (!StringUtils.hasText(text)) {
+            return;
+        }
+        String truncated = text.length() > MAX_EXTRACT_CHARS ? text.substring(0, MAX_EXTRACT_CHARS) : text;
+        List<SlackMessage> pseudoThread = List.of(new SlackMessage("tiro", title, truncated, noteGuid));
+        Optional<DecisionExtract> extract;
+        try {
+            extract = extractor.extract(pseudoThread);
+        } catch (RuntimeException exception) {
+            log.warn("Tiro 지식 추출 실패 (원문 임포트는 완료): {}", title, exception);
+            return;
+        }
+        extract.ifPresent(value ->
+                tx.executeWithoutResult(status -> tripleWriter.replace(documentId, value, "tiro", noteGuid)));
+    }
+
+    private String transcriptText(List<TiroTranscriptParagraph> transcript) {
+        return transcript.stream()
+                .map(TiroTranscriptParagraph::transcript)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("");
     }
 
     private UUID ownerId(TiroNoteSummary note, UUID importerId) {

@@ -18,7 +18,8 @@ public record DecisionExtract(
             String rationale,
             List<String> alternatives,
             String owner,
-            String condition
+            String condition,
+            String topic
     ) {}
 
     public record TacitKnowledge(String kind, String statement, List<Triple> triples) {}
