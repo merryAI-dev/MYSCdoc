@@ -43,8 +43,8 @@
   #searchResults .hit .path { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   #knowledgeLink { display: block; margin: 0 8px 4px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); text-decoration: none; }
   #knowledgeLink:hover { background: var(--sidebar-hover); color: var(--ink); }
-  #tiroImport, #driveImport, #driveSyncKnowledge { display: block; width: calc(100% - 16px); margin: 0 8px 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); background: none; border: none; text-align: left; cursor: pointer; }
-  #tiroImport:hover, #driveImport:hover, #driveSyncKnowledge:hover { background: var(--sidebar-hover); color: var(--ink); }
+  #tiroImport, #meetilyImport, #driveImport, #driveSyncKnowledge { display: block; width: calc(100% - 16px); margin: 0 8px 6px; padding: 6px 8px; border-radius: 4px; font-size: 13px; color: var(--muted); background: none; border: none; text-align: left; cursor: pointer; }
+  #tiroImport:hover, #meetilyImport:hover, #driveImport:hover, #driveSyncKnowledge:hover { background: var(--sidebar-hover); color: var(--ink); }
   nav { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
   .spaceRow { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px; font-size: 11px; font-weight: 650; color: var(--muted); letter-spacing: 0; }
   .docRow { display: flex; align-items: center; gap: 7px; padding: 5px 8px; min-height: 30px; border-radius: 4px; font-size: 14px; cursor: pointer; color: var(--ink); }
@@ -151,6 +151,7 @@
     </div>
     <a id="knowledgeLink" href="/knowledge.html">🕸 지식그래프</a>
     <button id="tiroImport">⇩ Tiro에서 가져오기</button>
+    <button id="meetilyImport">⇩ Meetily에서 가져오기</button>
     <button id="driveImport">⇩ Google Drive에서 가져오기</button>
     <button id="driveSyncKnowledge">🔗 지식그래프 동기화 (Drive·Tiro)</button>
     <nav id="nav"></nav>
@@ -441,6 +442,50 @@ async function importTiroNote(noteGuid, btn) {
     const r = await api('POST', `/api/integrations/tiro/notes/${noteGuid}/import`, { spaceId })
     $('panel').classList.remove('open')
     toast('Tiro 회의록을 가져왔어요')
+    await loadNav()
+    openDoc(r.documentId)
+  } catch (e) { btn.disabled = false; btn.textContent = '가져오기'; toast(e.message) }
+}
+
+// ---------- Meetily (로컬 회의 비서) 가져오기 ----------
+$('meetilyImport').onclick = () => openMeetilyPicker()
+function openMeetilyPicker() {
+  if (!spaces.length) { toast('먼저 스페이스를 만들어 주세요'); return }
+  openPanel('Meetily에서 가져오기')
+  $('panelBody').innerHTML = `
+    <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">가져올 스페이스</label>
+    <select id="meetilySpace" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:4px;font-size:13px;margin-bottom:10px">
+      ${spaces.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+    </select>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px">로컬 Meetily 백엔드(기본 5167)에 저장된 회의 목록이에요. 최신순.</p>
+    <div id="meetilyList"></div>
+  `
+  loadMeetilyMeetings()
+}
+async function loadMeetilyMeetings() {
+  const list = $('meetilyList')
+  list.innerHTML = '<p style="color:var(--muted)">불러오는 중…</p>'
+  let r
+  try {
+    r = await api('POST', '/api/integrations/meetily/browse', {})
+  } catch (e) { list.innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; return }
+  if (!r.meetings.length) { list.innerHTML = '<p style="color:var(--muted)">Meetily에 저장된 회의가 없어요.</p>'; return }
+  list.innerHTML = r.meetings.map(m => `
+    <div class="finding" data-meeting="${esc(m.id)}">
+      <div style="font-weight:600;margin-bottom:4px">${esc(m.title || m.id)}</div>
+      <div class="cat">${esc(m.id)}</div>
+      <button data-import="${esc(m.id)}" style="margin-top:8px;padding:5px 10px;font-size:12.5px;border:1px solid var(--line);background:#fff;border-radius:4px">가져오기</button>
+    </div>
+  `).join('')
+  list.querySelectorAll('[data-import]').forEach(btn => btn.onclick = () => importMeetilyMeeting(btn.dataset.import, btn))
+}
+async function importMeetilyMeeting(meetingId, btn) {
+  const spaceId = $('meetilySpace').value
+  btn.disabled = true; btn.textContent = '가져오는 중…'
+  try {
+    const r = await api('POST', '/api/integrations/meetily/import', { meetingId, spaceId })
+    $('panel').classList.remove('open')
+    toast('Meetily 회의를 가져왔어요')
     await loadNav()
     openDoc(r.documentId)
   } catch (e) { btn.disabled = false; btn.textContent = '가져오기'; toast(e.message) }

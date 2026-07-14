@@ -14,6 +14,7 @@ import com.mysc.mydoc.ingest.archive.DecisionExtractPort;
 import com.mysc.mydoc.repository.BlockRepository;
 import com.mysc.mydoc.repository.DocumentRepository;
 import com.mysc.mydoc.repository.GoogleDriveIngestLogRepository;
+import com.mysc.mydoc.repository.MeetilyIngestLogRepository;
 import com.mysc.mydoc.repository.TiroIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
@@ -29,7 +30,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -64,6 +64,7 @@ public class GoogleDriveIngestService {
     private final BlockRepository blockRepository;
     private final GoogleDriveIngestLogRepository ingestLogs;
     private final TiroIngestLogRepository tiroIngestLogs;
+    private final MeetilyIngestLogRepository meetilyIngestLogs;
     private final DecisionExtractPort extractor;
     private final KnowledgeTripleWriter tripleWriter;
     private final ObjectMapper objectMapper;
@@ -84,6 +85,7 @@ public class GoogleDriveIngestService {
             BlockRepository blockRepository,
             GoogleDriveIngestLogRepository ingestLogs,
             TiroIngestLogRepository tiroIngestLogs,
+            MeetilyIngestLogRepository meetilyIngestLogs,
             DecisionExtractPort extractor,
             KnowledgeTripleWriter tripleWriter,
             ObjectMapper objectMapper,
@@ -95,6 +97,7 @@ public class GoogleDriveIngestService {
         this.blockRepository = blockRepository;
         this.ingestLogs = ingestLogs;
         this.tiroIngestLogs = tiroIngestLogs;
+        this.meetilyIngestLogs = meetilyIngestLogs;
         this.extractor = extractor;
         this.tripleWriter = tripleWriter;
         this.objectMapper = objectMapper;
@@ -313,6 +316,9 @@ public class GoogleDriveIngestService {
         for (var entry : tiroIngestLogs.findAll()) {
             targets.add(new SyncTarget(entry.getDocumentId(), "tiro", entry.getNoteGuid()));
         }
+        for (var entry : meetilyIngestLogs.findAll()) {
+            targets.add(new SyncTarget(entry.getDocumentId(), "meetily", entry.getMeetingId()));
+        }
         job.found = targets.size();
         for (SyncTarget target : targets) {
             job.currentDoc = target.sourceLabel() + ":" + target.sourceRef();
@@ -357,25 +363,44 @@ public class GoogleDriveIngestService {
         return extract.isPresent();
     }
 
-    // Tiro 임포트가 심는 구조 블록/메타데이터 — 재추출 입력에서 걸러 임포트 시점의 순수 전사와 맞춘다.
+    // Tiro·Meetily 임포트가 심는 구조 블록/메타데이터 — 재추출 입력에서 걸러 임포트 시점의 순수 전사와 맞춘다.
     private static final Pattern TIRO_META_LINE =
             Pattern.compile("^(작성자|참석자|녹음 시작|길이|출처)\\s*:.*");
+    // 타임코드는 숫자로 시작한다 ("[00:01 - 00:05] ", "[12s - 34s] ") — 전사 자체의
+    // 대괄호 주석("[BLANK_AUDIO]", "[음악]")까지 벗기지 않도록 숫자 시작만 매칭.
     private static final Pattern LEADING_TIMECODE =
-            Pattern.compile("^\\[[^\\]]{1,40}\\]\\s*");
+            Pattern.compile("^\\[\\d[^\\]]{0,39}\\]\\s*");
+    private static final String META_SECTION_HEADING = "회의 정보";
 
     /**
      * 저장된 블록(ProseMirror 스타일 JSON)에서 평문을 재구성한다 — 원본 API를 다시 부르지 않는다.
-     * 재추출 입력을 임포트 시점 입력과 맞추기 위해 제목/메타데이터 블록은 제외하고 타임코드 접두는 벗긴다
-     * (Drive 문서는 이런 블록이 없어 영향 없음. Tiro 회의록만 회의 정보·참석자·출처·타임코드를 갖는다).
+     * 재추출 입력을 임포트 시점 입력과 맞추기 위해 헤딩 블록은 제외하고 타임코드 접두는 벗기며,
+     * 메타데이터 라인(작성자/출처 등)은 '회의 정보' 헤딩 아래 구간에서만 거른다 — 발화가 우연히
+     * "출처:"로 시작해도 전사 본문은 잃지 않는다. (Drive 문서는 헤딩이 없어 전부 본문 취급.)
      */
     private String reconstructText(UUID documentId) {
-        return blockRepository.findByDocumentIdOrderByPosition(documentId).stream()
-                .filter(block -> block.getType() == BlockType.PARAGRAPH) // 헤딩(회의 정보/전사 원문/Tiro 요약) 제외
-                .map(this::blockText)
-                .map(text -> LEADING_TIMECODE.matcher(text).replaceFirst(""))
-                .filter(StringUtils::hasText)
-                .filter(text -> !TIRO_META_LINE.matcher(text).matches())
-                .collect(Collectors.joining("\n"));
+        StringBuilder text = new StringBuilder();
+        boolean inMetaSection = false;
+        for (Block block : blockRepository.findByDocumentIdOrderByPosition(documentId)) {
+            String line = blockText(block);
+            if (block.getType() != BlockType.PARAGRAPH) {
+                // 헤딩 = 섹션 경계 (회의 정보 / 전사 원문 / Tiro 제공 요약)
+                inMetaSection = META_SECTION_HEADING.equals(line.strip());
+                continue;
+            }
+            String stripped = LEADING_TIMECODE.matcher(line).replaceFirst("");
+            if (!StringUtils.hasText(stripped)) {
+                continue;
+            }
+            if (inMetaSection && TIRO_META_LINE.matcher(stripped).matches()) {
+                continue;
+            }
+            if (text.length() > 0) {
+                text.append('\n');
+            }
+            text.append(stripped);
+        }
+        return text.toString();
     }
 
     private String blockText(Block block) {
