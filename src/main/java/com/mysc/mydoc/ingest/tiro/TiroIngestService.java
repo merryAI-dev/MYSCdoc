@@ -16,6 +16,7 @@ import com.mysc.mydoc.repository.MemberRepository;
 import com.mysc.mydoc.repository.TiroIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
+import com.mysc.mydoc.service.EventDates;
 import com.mysc.mydoc.service.KnowledgeTripleWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -92,6 +93,8 @@ public class TiroIngestService {
         try {
             documentId = tx.execute(status -> {
                 var document = documents.create(spaceId, note.title(), ownerId);
+                // 녹음 시작 시각을 사건 시각으로 — 시간축 기준(트리플로 복사됨).
+                EventDates.fromIsoish(note.recordingStartAt()).ifPresent(document::setEventAt);
                 documents.replaceBlocks(document.getId(), blocks(note, transcript), ownerId, ChangeCause.IMPORT);
                 ingestLogs.save(new TiroIngestLog(noteGuid, document.getId()));
                 return document.getId();

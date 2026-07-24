@@ -24,11 +24,12 @@ public class KnowledgeGraphService {
     }
 
     public record ScoredTriple(UUID id, UUID documentId, String kind, String statement,
-                               String subject, String predicate, String object, double score) {}
+                               String subject, String predicate, String object, java.time.Instant eventAt,
+                               double score) {}
 
     public record GraphNode(String id, int degree) {}
     public record GraphEdge(String source, String target, String predicate, String kind,
-                            UUID documentId, String statement) {}
+                            UUID documentId, String statement, java.time.Instant eventAt) {}
     public record Graph(List<GraphNode> nodes, List<GraphEdge> edges) {}
 
     /** q가 비어 있으면 최신순, 있으면 BM25 점수순. */
@@ -98,7 +99,7 @@ public class KnowledgeGraphService {
             degree.merge(hit.subject(), 1, Integer::sum);
             degree.merge(hit.object(), 1, Integer::sum);
             edges.add(new GraphEdge(hit.subject(), hit.object(), hit.predicate(),
-                    hit.kind(), hit.documentId(), hit.statement()));
+                    hit.kind(), hit.documentId(), hit.statement(), hit.eventAt()));
         }
         List<GraphNode> nodes = degree.entrySet().stream()
                 .map(entry -> new GraphNode(entry.getKey(), entry.getValue()))
@@ -108,7 +109,7 @@ public class KnowledgeGraphService {
 
     private static ScoredTriple scored(KnowledgeTriple triple, double score) {
         return new ScoredTriple(triple.getId(), triple.getDocumentId(), triple.getKind(), triple.getStatement(),
-                triple.getSubject(), triple.getPredicate(), triple.getObject(), score);
+                triple.getSubject(), triple.getPredicate(), triple.getObject(), triple.getEventAt(), score);
     }
 
     // BM25 문서 텍스트: 주어/서술어/목적어에 statement와 kind까지 합쳐 부분 일치를 넓게 잡는다.

@@ -24,6 +24,8 @@ public class Document {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "owner_id") private Member owner;
     @Enumerated(EnumType.STRING) @Column(nullable = false) private DocStatus status;
     private Instant verifiedAt;
+    // 사건 시각(회의일·메시지 시각) — 임포트 시각(createdAt)과 별개. 시간축 분석의 기준.
+    private Instant eventAt;
     @Column(nullable = false) private int ttlDays;
     @Column(nullable = false) private Instant createdAt;
     @Column(nullable = false) private Instant updatedAt;
@@ -49,6 +51,8 @@ public class Document {
     public void markStale() { this.status = DocStatus.STALE; touch(); }
     public void verify() { this.verifiedAt = Instant.now(); if (status == DocStatus.STALE) status = DocStatus.ACTIVE; touch(); }
     public void changeOwner(Member newOwner) { this.owner = newOwner; touch(); }
+    /** 사건 시각 지정 — 원본이 알려준 회의일/메시지 시각. updatedAt은 건드리지 않는다. */
+    public void setEventAt(Instant eventAt) { this.eventAt = eventAt; }
     private void touch() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
@@ -57,6 +61,7 @@ public class Document {
     public Member getOwner() { return owner; }
     public DocStatus getStatus() { return status; }
     public Instant getVerifiedAt() { return verifiedAt; }
+    public Instant getEventAt() { return eventAt; }
     public int getTtlDays() { return ttlDays; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

@@ -20,6 +20,7 @@ import com.mysc.mydoc.repository.SlackDecisionLogRepository;
 import com.mysc.mydoc.repository.SpaceRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
+import com.mysc.mydoc.service.EventDates;
 import com.mysc.mydoc.service.KnowledgeTripleWriter;
 import java.time.Duration;
 import java.time.Instant;
@@ -156,6 +157,8 @@ public class DecisionExtractionJob {
                 var space = spaces.findBySlug(defaultSpaceSlug)
                         .orElseThrow(() -> new NotFoundException("space not found: " + defaultSpaceSlug));
                 var document = documents.create(space.getId(), decision.get().title(), systemMemberId);
+                // 스레드 시작 ts를 사건 시각으로 — 그래프 시간축의 기준(트리플로 복사됨).
+                EventDates.fromEpochSeconds(thread.getThreadTs()).ifPresent(document::setEventAt);
                 documents.replaceBlocks(document.getId(), blocks(decision.get(), thread), systemMemberId, ChangeCause.SLACK_INGEST);
                 decisionLog.linkDocument(document.getId());
                 tripleWriter.replace(document.getId(), decision.get(), thread.getChannelId(), thread.getThreadTs());

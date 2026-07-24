@@ -90,6 +90,7 @@
   <h1>지식그래프</h1>
   <input id="q" placeholder="검색 (BM25) — 예: 배포, 결제, 알림…">
   <span id="count"></span>
+  <span id="period" style="color:var(--muted);font-size:12.5px"></span>
   <span id="legend"></span>
   <button id="gear">⚙ 설정</button>
 </header>
@@ -185,6 +186,12 @@ async function load(q) {
   const byId = new Map(nodes.map(n => [n.id, n]))
   edges = graph.edges.map(e => ({ ...e, a: byId.get(e.source), b: byId.get(e.target) }))
   document.getElementById('count').textContent = nodes.length + '개 개체 · ' + edges.length + '개 관계'
+  // 사건 시각(event_at) 기반 기간 표시 — 임포트 시각이 아니라 실제 회의일/메시지 시각.
+  const evs = edges.map(e => e.eventAt).filter(Boolean).sort()
+  const fmt = s => new Date(s).toLocaleDateString('ko-KR', { year: '2-digit', month: '2-digit' })
+  document.getElementById('period').textContent = evs.length
+      ? ' · 기간 ' + fmt(evs[0]) + '~' + fmt(evs[evs.length - 1]) + ' (' + evs.length + '/' + edges.length + ' 시각확인)'
+      : ''
   document.getElementById('emptyMsg').style.display = edges.length ? 'none' : 'flex'
   const kinds = [...new Set(edges.map(e => e.kind))]
   document.getElementById('legend').innerHTML = kinds.map(k =>

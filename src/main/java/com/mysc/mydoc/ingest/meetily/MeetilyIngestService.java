@@ -13,6 +13,7 @@ import com.mysc.mydoc.ingest.archive.DecisionExtractPort;
 import com.mysc.mydoc.repository.MeetilyIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
+import com.mysc.mydoc.service.EventDates;
 import com.mysc.mydoc.service.KnowledgeTripleWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -94,6 +95,8 @@ public class MeetilyIngestService {
         try {
             documentId = tx.execute(status -> {
                 var document = documents.create(spaceId, title, memberId);
+                // 회의 생성 시각을 사건 시각으로 — 시간축 기준(트리플로 복사됨).
+                EventDates.fromIsoish(meeting.createdAt()).ifPresent(document::setEventAt);
                 documents.replaceBlocks(document.getId(), blocks(meeting), memberId, ChangeCause.IMPORT);
                 ingestLogs.save(new MeetilyIngestLog(meetingId, document.getId()));
                 return document.getId();

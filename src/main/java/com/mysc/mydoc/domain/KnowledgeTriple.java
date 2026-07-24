@@ -23,13 +23,15 @@ public class KnowledgeTriple {
     @Column(name = "object", nullable = false) private String object;
     @Column(nullable = false) private String channelId;
     @Column(nullable = false) private String threadTs;
+    // 사건 시각(회의일·메시지 시각) — 소속 문서의 event_at을 복사. 시간축 그래프 필터의 기준. null 가능.
+    private Instant eventAt;
     @Column(nullable = false) private Instant createdAt;
 
     protected KnowledgeTriple() {}
 
     public KnowledgeTriple(UUID documentId, String kind, String statement,
                            String subject, String predicate, String object,
-                           String channelId, String threadTs) {
+                           String channelId, String threadTs, Instant eventAt) {
         this.id = UUID.randomUUID();
         this.documentId = documentId;
         this.kind = kind;
@@ -39,6 +41,7 @@ public class KnowledgeTriple {
         this.object = object;
         this.channelId = channelId;
         this.threadTs = threadTs;
+        this.eventAt = eventAt;
         this.createdAt = Instant.now();
     }
 
@@ -51,5 +54,6 @@ public class KnowledgeTriple {
     public String getObject() { return object; }
     public String getChannelId() { return channelId; }
     public String getThreadTs() { return threadTs; }
+    public Instant getEventAt() { return eventAt; }
     public Instant getCreatedAt() { return createdAt; }
 }

@@ -18,6 +18,7 @@ import com.mysc.mydoc.repository.MeetilyIngestLogRepository;
 import com.mysc.mydoc.repository.TiroIngestLogRepository;
 import com.mysc.mydoc.service.BlockPayload;
 import com.mysc.mydoc.service.DocumentService;
+import com.mysc.mydoc.service.EventDates;
 import com.mysc.mydoc.service.KnowledgeTripleWriter;
 import jakarta.annotation.PreDestroy;
 import java.time.Instant;
@@ -278,6 +279,8 @@ public class GoogleDriveIngestService {
         // 문서 생성 + 블록 + dedup 로그를 한 트랜잭션으로 — 중간 실패 시 고아 문서가 남지 않는다.
         UUID documentId = tx.execute(status -> {
             var document = documents.create(spaceId, doc.name(), memberId);
+            // 회의록 제목 앞 YYYYMMDD를 사건일로 — 시간축 기준(트리플로 복사됨).
+            EventDates.fromDriveTitle(doc.name()).ifPresent(document::setEventAt);
             documents.replaceBlocks(document.getId(), blocks(text, doc), memberId, ChangeCause.IMPORT);
             ingestLogs.save(new GoogleDriveIngestLog(doc.fileId(), document.getId()));
             return document.getId();
