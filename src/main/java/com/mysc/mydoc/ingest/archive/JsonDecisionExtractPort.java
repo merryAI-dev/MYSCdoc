@@ -185,7 +185,7 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                       "statement": "다음에 같은 상황이 오면 알아야 할 지식을 한 문장으로.",
                       "triples": [
                         {"subject": "개체(시스템/정책/사람/팀 등 스레드에서 실제로 지칭된 이름)",
-                         "predicate": "관계(동사구, 예: '차단한다', '담당한다', '전제로 한다')",
+                         "predicate": "관계 — 가능하면 다음 표준 관계 중 가장 가까운 하나를 쓰세요: %s. (딱 맞는 게 없을 때만 자연스러운 동사구)",
                          "object": "개체 또는 값"}
                       ]
                     }
@@ -246,6 +246,6 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                    "statement": "사용자 목록 렌더링은 컨설턴트 메일이 null이면 화면이 깨져요 — null 가드가 필요해요.",
                    "triples": [{"subject": "사용자 목록 렌더링", "predicate": "깨진다", "object": "메일이 null일 때"},
                                {"subject": "메일 null 가드", "predicate": "해결한다", "object": "사용자 목록 렌더링 오류"}]}]}
-                """.formatted(thread);
+                """.formatted(thread, com.mysc.mydoc.service.PredicateVocabulary.CANONICAL_LIST);
     }
 }

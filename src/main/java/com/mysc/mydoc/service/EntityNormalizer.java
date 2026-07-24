@@ -121,7 +121,7 @@ public class EntityNormalizer {
         return entity(value).map(List::of).orElse(List.of());
     }
 
-    /** 서술어(predicate) 정규화 — 지나치게 길면 관계가 아니라 서술이므로 거부. */
+    /** 서술어(predicate) 정규화 — 지나치게 길면 관계가 아니라 서술이므로 거부, 그 외엔 통제 어휘로 수렴. */
     public Optional<String> predicate(String raw) {
         if (!StringUtils.hasText(raw)) {
             return Optional.empty();
@@ -130,6 +130,7 @@ public class EntityNormalizer {
         if (value.length() > MAX_PREDICATE_LENGTH) {
             return Optional.empty();
         }
-        return Optional.of(value);
+        // 표준 관계로 수렴(유발/발생시킨다/초래 → "유발한다"). 일치 없으면 원형 유지.
+        return Optional.of(PredicateVocabulary.canonicalize(value));
     }
 }
