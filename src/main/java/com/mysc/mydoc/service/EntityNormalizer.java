@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -64,6 +65,10 @@ public class EntityNormalizer {
     private static final Set<String> NON_HONORIFIC_NIM = Set.of(
             "하나님", "하느님", "선생님", "부처님", "임님", "손님", "스승님");
 
+    // "정지연(모모)"처럼 한국 이름 뒤 짧은 별명 괄호 — 별명을 떼어 순수 이름으로 수렴시킨다.
+    // (실측: 이 형태 9개 중 7개가 괄호 없는 동일 이름과 이미 별도 개체로 쪼개져 있었음.)
+    private static final Pattern NAME_NICKNAME = Pattern.compile("^([가-힣]{2,4})\\([가-힣A-Za-z]{1,6}\\)$");
+
     /**
      * 개체 하나를 정규화한다. 명사구로 볼 수 없으면(문장형·과대 길이) 빈 Optional.
      */
@@ -81,6 +86,10 @@ public class EntityNormalizer {
         }
         if (value.endsWith("님") && value.length() >= 3 && !NON_HONORIFIC_NIM.contains(value)) {
             value = value.substring(0, value.length() - 1);
+        }
+        Matcher nick = NAME_NICKNAME.matcher(value);
+        if (nick.matches()) {
+            value = nick.group(1); // "정지연(모모)" → "정지연"
         }
         String alias = ALIASES.get(value.toLowerCase(Locale.ROOT));
         if (alias != null) {

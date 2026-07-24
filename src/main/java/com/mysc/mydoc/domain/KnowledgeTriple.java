@@ -45,6 +45,13 @@ public class KnowledgeTriple {
         this.createdAt = Instant.now();
     }
 
+    /** 정규화 배치용 — 규칙(개체/서술어 통제 어휘)이 바뀌었을 때 LLM 없이 제자리 갱신한다. */
+    public void normalize(String subject, String predicate, String object) {
+        this.subject = subject;
+        this.predicate = predicate;
+        this.object = object;
+    }
+
     public UUID getId() { return id; }
     public UUID getDocumentId() { return documentId; }
     public String getKind() { return kind; }

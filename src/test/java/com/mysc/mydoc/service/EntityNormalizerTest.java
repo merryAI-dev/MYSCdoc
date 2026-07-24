@@ -40,6 +40,15 @@ class EntityNormalizerTest {
     }
 
     @Test
+    void stripsNamePythonNicknameToMergePeople() {
+        // "정지연(모모)"와 "정지연"이 같은 사람으로 수렴 (실측 7명 병합)
+        assertThat(normalizer.entity("정지연(모모)")).contains("정지연");
+        assertThat(normalizer.entity("조이수(수)")).contains("조이수");
+        // 이름 형태가 아니면 괄호 유지 (오병합 방지)
+        assertThat(normalizer.entity("KOICA IPS 사업(2026)")).contains("KOICA IPS 사업(2026)");
+    }
+
+    @Test
     void keepsNounsThatMerelyEndInNim() {
         // '님'으로 끝나지만 존칭이 아닌 명사는 절단하면 안 된다 (하나님→하나 충돌 방지)
         assertThat(normalizer.entity("하나님")).contains("하나님");

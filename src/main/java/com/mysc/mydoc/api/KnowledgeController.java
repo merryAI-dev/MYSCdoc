@@ -1,6 +1,7 @@
 package com.mysc.mydoc.api;
 
 import com.mysc.mydoc.service.GraphEmbeddingService;
+import com.mysc.mydoc.service.GraphNormalizationService;
 import com.mysc.mydoc.service.GraphEmbeddingService.Prediction;
 import com.mysc.mydoc.service.GraphEmbeddingService.TrainConfig;
 import com.mysc.mydoc.service.GraphEmbeddingService.TrainResult;
@@ -21,12 +22,14 @@ public class KnowledgeController {
     private final KnowledgeGraphService knowledge;
     private final KnowledgeChatService chat;
     private final GraphEmbeddingService embedding;
+    private final GraphNormalizationService normalization;
 
     public KnowledgeController(KnowledgeGraphService knowledge, KnowledgeChatService chat,
-                              GraphEmbeddingService embedding) {
+                              GraphEmbeddingService embedding, GraphNormalizationService normalization) {
         this.knowledge = knowledge;
         this.chat = chat;
         this.embedding = embedding;
+        this.normalization = normalization;
     }
 
     public record TripleListResponse(List<ScoredTriple> triples) {}
@@ -53,6 +56,15 @@ public class KnowledgeController {
     @PostMapping("/api/knowledge/chat")
     ChatAnswer chat(@RequestBody ChatRequest request) {
         return chat.answer(request.question());
+    }
+
+    /**
+     * 기존 트리플에 최신 정규화 규칙(개체·괄호별명·서술어 통제 어휘)을 다시 적용한다 — LLM 없이 토큰 0.
+     * 규칙을 바꾼 뒤 재추출(Gemini 재호출) 대신 이걸 돌리면 그래프가 새 규칙으로 수렴한다.
+     */
+    @PostMapping("/api/knowledge/normalize")
+    GraphNormalizationService.NormalizeResult normalize() {
+        return normalization.normalizeExisting();
     }
 
     /**
