@@ -108,7 +108,9 @@ public class ArchiveConfigController {
     @PostMapping("/api/slack/channels/{channelId}/backfill")
     BackfillResponse backfill(@PathVariable String channelId,
                               @RequestParam(defaultValue = "100") int limit) {
-        int archived = backfill.backfill(channelId, Math.min(limit, 200));
+        // 커서 페이지네이션이 생겨 채널 전체 이력까지 거슬러 갈 수 있다(예전 상한 200).
+        // 그래도 한 번에 무한정 끌어오지 않도록 상한은 둔다 — Slack rate limit·추출 비용 보호.
+        int archived = backfill.backfill(channelId, Math.min(limit, 5_000));
         DecisionExtractionJob.SyncResult result = decisionJob.syncNow();
         if (result.examined() < 0) {
             return new BackfillResponse(archived, false, 0, 0);

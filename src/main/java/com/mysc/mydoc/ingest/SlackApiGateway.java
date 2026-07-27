@@ -14,6 +14,9 @@ import org.springframework.util.StringUtils;
 @Component
 @ConditionalOnExpression("'${mydoc.slack.bot-token:}' != ''")
 public class SlackApiGateway implements SlackGateway, SlackDmPort {
+    /** conversations.history 한 페이지 크기 — Slack 권장 상한. 그 이상은 커서로 이어 받는다. */
+    private static final int SLACK_PAGE_SIZE = 200;
+
     private final MethodsClient slack;
 
     // 생성자가 2개(테스트용 포함)라 Spring이 고를 수 있게 명시한다. 실토큰으로 기동해야만 드러나는 지점.
@@ -114,24 +117,45 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
     public List<ArchivableMessage> channelHistory(String channelId, int limit) {
         try {
             List<ArchivableMessage> archivable = new java.util.ArrayList<>();
-            var history = slack.conversationsHistory(request -> request.channel(channelId).limit(limit));
-            if (!history.isOk()) {
-                throw new IllegalStateException("conversations.history failed: " + history.getError());
-            }
-            for (Message parent : nonNull(history.getMessages())) {
-                addIfArchivable(archivable, parent, parent.getTs());
-                // 답글이 있는 스레드는 펼쳐서 답글까지 아카이브한다.
-                if (parent.getReplyCount() != null && parent.getReplyCount() > 0) {
-                    var replies = slack.conversationsReplies(request -> request.channel(channelId).ts(parent.getTs()));
-                    if (replies.isOk()) {
-                        for (Message reply : nonNull(replies.getMessages())) {
-                            if (!reply.getTs().equals(parent.getTs())) { // 루트는 위에서 이미 넣음
-                                addIfArchivable(archivable, reply, parent.getTs());
+            String cursor = null;
+            int fetchedParents = 0;
+            // 커서 페이지네이션 — 예전엔 단발 호출이라 채널당 최근 N건이 상한이었다.
+            // Slack 권장 페이지 크기는 200이므로 그 단위로 limit까지 거슬러 올라간다.
+            do {
+                final String pageCursor = cursor;
+                final int pageSize = Math.min(SLACK_PAGE_SIZE, limit - fetchedParents);
+                var history = slack.conversationsHistory(request -> {
+                    request.channel(channelId).limit(pageSize);
+                    if (pageCursor != null) {
+                        request.cursor(pageCursor);
+                    }
+                    return request;
+                });
+                if (!history.isOk()) {
+                    throw new IllegalStateException("conversations.history failed: " + history.getError());
+                }
+                List<Message> messages = nonNull(history.getMessages());
+                for (Message parent : messages) {
+                    fetchedParents++;
+                    addIfArchivable(archivable, parent, parent.getTs());
+                    // 답글이 있는 스레드는 펼쳐서 답글까지 아카이브한다.
+                    if (parent.getReplyCount() != null && parent.getReplyCount() > 0) {
+                        var replies = slack.conversationsReplies(request -> request.channel(channelId).ts(parent.getTs()));
+                        if (replies.isOk()) {
+                            for (Message reply : nonNull(replies.getMessages())) {
+                                if (!reply.getTs().equals(parent.getTs())) { // 루트는 위에서 이미 넣음
+                                    addIfArchivable(archivable, reply, parent.getTs());
+                                }
                             }
                         }
                     }
                 }
-            }
+                cursor = messages.isEmpty() || history.getResponseMetadata() == null
+                        ? null : history.getResponseMetadata().getNextCursor();
+                if (cursor != null && cursor.isBlank()) {
+                    cursor = null;
+                }
+            } while (cursor != null && fetchedParents < limit);
             return archivable;
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
