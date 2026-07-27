@@ -176,7 +176,8 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                       "alternatives": ["검토했지만 채택하지 않은 대안. 없으면 빈 배열."],
                       "owner": "이 결정의 실행/책임 주체로 스레드에서 지목된 사람이나 팀. 없으면 빈 문자열.",
                       "condition": "이 결정이 적용되는 조건이나 예외(예: '공휴일이면 예외'). 없으면 빈 문자열.",
-                      "topic": "결정의 대상을 가리키는 짧은 명사구 (예: '결제 재시도 횟수', '배포 요일'). 문장 금지."
+                      "topic": "결정의 대상을 가리키는 짧은 명사구 (예: '결제 재시도 횟수', '배포 요일', '펀드 소재지'). 문장 금지.",
+                      "outcome": "그 대상을 '무엇으로' 정했는지 — 결정된 값/방향을 짧은 명사구로 (예: '3회', '화요일', '일본'). 문장 금지. 값이 아니라 행위면 그 행위를 명사구로(예: '플랫폼화', '보류'). 불명확하면 빈 문자열."
                     }
                   ],
                   "tacitKnowledge": [
@@ -229,7 +230,7 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
                              "재시도 횟수를 3회로 제한하기로 확정했고, 민지가 반영을 맡기로 했어요."],
                  "decisionPoints": [{"decision": "결제 재시도는 3회 실패 시 중단해요.",
                    "rationale": "5회는 과도하다는 판단이 있었어요.", "alternatives": ["5회 재시도"],
-                   "owner": "민지", "condition": "", "topic": "결제 재시도 횟수"}],
+                   "owner": "민지", "condition": "", "topic": "결제 재시도 횟수", "outcome": "3회"}],
                  "tacitKnowledge": [{"kind": "constraint",
                    "statement": "결제 재시도 로직은 실패 횟수 상한이 없으면 야간 알림 과다를 유발해요.",
                    "triples": [{"subject": "결제 재시도 로직", "predicate": "유발한다", "object": "야간 알림 과다"}]}]}

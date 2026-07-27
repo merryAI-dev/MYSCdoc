@@ -271,15 +271,23 @@ class M9AcceptanceTest {
         String updated = String.join("\n", jdbcTemplate.queryForList(
                 "SELECT content::text FROM block WHERE document_id = ? ORDER BY position", String.class, documentId));
         assertThat(updated).contains("공휴일이면 수요일로 미뤄요");
-        // 재추출 시 트리플도 통째로 교체된다 — 두 번째 fake는 tacitKnowledge가 비어 decision 1건만 남는다
-        assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(1);
-        // M16: 그래프 노드(object)는 결정 문장이 아니라 topic 명사구 — 결정 문장은 statement에 남는다
+        // M20: 결정은 사건 노드로 분해된다 — (결정:배포 요일)-주체->팀, -대상->배포 요일, -조건->공휴일인 경우
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT predicate FROM knowledge_triple WHERE document_id = ? AND subject = '결정:배포 요일'",
+                String.class, documentId))
+                .contains("주체", "대상", "조건");
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT object FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
+                "SELECT object FROM knowledge_triple WHERE document_id = ? AND predicate = '대상'",
+                String.class, documentId))
                 .isEqualTo("배포 요일");
         assertThat(jdbcTemplate.queryForObject(
+                "SELECT object FROM knowledge_triple WHERE document_id = ? AND predicate = '조건'",
+                String.class, documentId))
+                .isEqualTo("공휴일인 경우");
+        // 결정 문장은 여전히 statement에 보존
+        assertThat(jdbcTemplate.queryForList(
                 "SELECT statement FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
-                .contains("공휴일이면 수요일로 미뤄요");
+                .allSatisfy(s -> assertThat(s).contains("공휴일이면 수요일로 미뤄요"));
     }
 
     @Test

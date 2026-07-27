@@ -141,16 +141,22 @@ class M16AcceptanceTest {
         // 원문 보존 + 로그
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM tiro_ingest_log WHERE note_guid = 'note-16'", Integer.class)).isEqualTo(1);
-        // 트리플: decision은 병기 분리로 2건(혜윰/보람), convention은 별칭 수렴(MYSC), 문장형 subject는 제외
+        // 트리플: M20 결정은 사건 노드로 분해(주체 2건=혜윰/보람 + 대상 1건),
+        // convention은 별칭 수렴(MYSC), 문장형 subject는 제외
         List<Map<String, Object>> triples = jdbcTemplate.queryForList(
                 "SELECT kind, subject, predicate, object, channel_id FROM knowledge_triple WHERE document_id = ? ORDER BY subject",
                 documentId);
-        assertThat(triples).hasSize(3);
         assertThat(triples).extracting(t -> t.get("channel_id")).containsOnly("tiro");
-        assertThat(triples).extracting(t -> t.get("subject").toString())
-                .containsExactlyInAnyOrder("혜윰", "보람", "MYSC");
-        assertThat(triples).filteredOn(t -> "decision".equals(t.get("kind")))
+        // 병기 분리: 결정 사건의 주체가 혜윰·보람 둘로 갈라진다
+        assertThat(triples).filteredOn(t -> "주체".equals(t.get("predicate")))
+                .extracting(t -> t.get("object").toString()).containsExactlyInAnyOrder("혜윰", "보람");
+        // 결정 대상은 명사구 그대로
+        assertThat(triples).filteredOn(t -> "대상".equals(t.get("predicate")))
                 .extracting(t -> t.get("object").toString()).containsOnly("AX 실습 세션");
+        // 별칭 수렴 + 문장형 개체 제외는 그대로 유지
+        assertThat(triples).extracting(t -> t.get("subject").toString()).contains("MYSC");
+        assertThat(triples).extracting(t -> t.get("subject").toString())
+                .noneMatch(s -> s.contains("PPT로 공유해요"));
     }
 
     @Test

@@ -126,13 +126,16 @@ class M17AcceptanceTest {
         assertThat(blocks).contains("배포 요일을 화요일로 확정했어요.").contains("출처: Meetily (meeting-1718340000000)");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT title FROM document WHERE id = ?", String.class, documentId)).isEqualTo("주간 싱크");
-        // 지식 추출: 명사구 topic이 목적어인 decision 트리플
+        // M20: 결정이 사건 노드로 분해돼 저장 — 주체(민지)·대상(배포 요일) 엣지
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM knowledge_triple WHERE document_id = ? AND channel_id = 'meetily'",
-                Integer.class, documentId)).isEqualTo(1);
+                Integer.class, documentId)).isGreaterThanOrEqualTo(2);
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT object FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
-                .isEqualTo("배포 요일");
+                "SELECT object FROM knowledge_triple WHERE document_id = ? AND predicate = '대상'",
+                String.class, documentId)).isEqualTo("배포 요일");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT object FROM knowledge_triple WHERE document_id = ? AND predicate = '주체'",
+                String.class, documentId)).isEqualTo("민지");
 
         // 재가져오기는 멱등 — 같은 documentId, LLM 재호출 없음
         int callsBefore = llm.calls;

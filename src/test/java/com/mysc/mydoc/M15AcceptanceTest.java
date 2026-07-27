@@ -140,11 +140,13 @@ class M15AcceptanceTest {
         assertThat(jdbcTemplate.queryForList(
                 "SELECT DISTINCT source_type FROM block WHERE document_id = ?", String.class, doc1))
                 .containsExactly("IMPORT");
-        // 지식추출: doc-1에서만 decision 트리플 생성
+        // 지식추출: doc-1에서만 decision 트리플 생성 (M20 — 사건 노드로 분해)
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM knowledge_triple WHERE document_id = ?", Integer.class, doc1)).isEqualTo(1);
+                "SELECT COUNT(*) FROM knowledge_triple WHERE document_id = ?", Integer.class, doc1))
+                .isGreaterThanOrEqualTo(2);
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT subject FROM knowledge_triple WHERE document_id = ?", String.class, doc1)).isEqualTo("민지");
+                "SELECT object FROM knowledge_triple WHERE document_id = ? AND predicate = '주체'",
+                String.class, doc1)).isEqualTo("민지");
 
         // 재실행하면 전부 dedup으로 건너뛰고 LLM도 다시 안 부른다
         int callsBefore = llm.calls;
