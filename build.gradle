@@ -21,6 +21,9 @@ java {
 }
 
 dependencies {
+    // 한국어 형태소 분석(Nori, mecab-ko-dic) — 결정 modality를 어휘가 아니라 어미로 판정하고
+    // 조사를 분리해 개체 경계를 잡는다. 교착어라 문자열 부분일치로는 둘 다 불가능.
+    implementation 'org.apache.lucene:lucene-analysis-nori:9.11.1'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
