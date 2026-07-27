@@ -213,8 +213,10 @@ class M15AcceptanceTest {
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM knowledge_triple WHERE document_id = ?", Integer.class, docA)).isEqualTo(1);
+        // M20: 재추출된 docB의 결정은 사건 노드로 분해 — 주체 엣지에 담당자가 온다
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT subject FROM knowledge_triple WHERE document_id = ?", String.class, docB)).isEqualTo("상우");
+                "SELECT object FROM knowledge_triple WHERE document_id = ? AND predicate = '주체'",
+                String.class, docB)).isEqualTo("상우");
 
         // 다시 돌리면 이제 둘 다 트리플이 있어 완전히 건너뛰고 LLM도 안 부른다
         int callsAfterFirstSync = llm.calls;

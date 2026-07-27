@@ -243,11 +243,14 @@ class M9AcceptanceTest {
         assertThat(jdbcTemplate.queryForList(
                 "SELECT DISTINCT source_type FROM block WHERE document_id = ?", String.class, documentId))
                 .containsExactly("SLACK_INGEST");
-        // 트리플 영속화: decision 1건 + 암묵지 1건
-        assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(2);
+        // 트리플 영속화: M20 결정은 사건 노드로 분해(주체·대상·근거…) + 암묵지 1건
         assertThat(jdbcTemplate.queryForList(
-                "SELECT kind FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
+                "SELECT DISTINCT kind FROM knowledge_triple WHERE document_id = ?", String.class, documentId))
                 .containsExactlyInAnyOrder("decision", "constraint");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT predicate FROM knowledge_triple WHERE document_id = ? AND kind = 'decision'",
+                String.class, documentId))
+                .contains("주체", "대상");
         assertThat(llm.calls).isEqualTo(1);
 
         // 같은 상태에서 잡이 다시 돌면 LLM을 다시 부르지 않는다
