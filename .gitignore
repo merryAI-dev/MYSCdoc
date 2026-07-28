@@ -5,3 +5,30 @@ editing-plane/node_modules/
 out/
 *.iml
 .idea/
+
+# ── research 산출물 ─────────────────────────────────────────────
+# 이 저장소는 공개다. 아래는 사내 회의록 원문(투자심의 결정·고객사·실명)이 그대로
+# 들어 있거나 용량이 커서 올리면 안 되는 것들이다. 코드와 집계 수치만 공개한다.
+# 주의: .gitignore는 줄 끝 주석을 지원하지 않는다 — 패턴 뒤에 주석을 붙이면
+# 공백까지 포함한 전체가 패턴이 되어 아무것도 무시되지 않는다(실제로 겪음).
+research/venv/
+research/__pycache__/
+# 교사 데이터·체크포인트 (회의록 원문 포함, 수 GB)
+research/archive/
+# 실험 산출물 (추출 결과에 원문 인용 포함)
+research/runs/
+# 코퍼스 (회의록 본문)
+research/corpus/
+# 변환 모델 (수 GB)
+research/mlx/
+# RL 데이터셋 (질문에 사내 맥락 포함)
+research/rl/
+research/*.jsonl
+# 라벨링 도구 — 회의록 본문이 HTML에 임베드된다
+research/*.html
+research/gold_key.json
+research/salience_key.json
+research/chat_holdout_questions.json
+research/time_split.json
+# 프롬프트 원본은 Java 소스에 있다
+research/prompts*.json

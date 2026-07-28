@@ -95,7 +95,9 @@ def main():
 
     jobs = [json.loads(l) for l in open(args.jobs)]
     llm = LLM(model=args.model, tensor_parallel_size=args.tp, trust_remote_code=True,
-              dtype="bfloat16", gpu_memory_utilization=0.92,
+              # 0.85: GPU0에 A2A 운영 스코어러(약 3.8GB)가 상주한다. 0.92로 잡으면
+              # 그 몫과 부딪혀 OOM으로 죽는다(실제로 겪음). 공용 장비라 여유를 둔다.
+              dtype="bfloat16", gpu_memory_utilization=0.85,
               max_model_len=args.max_model_len)
     tok = llm.get_tokenizer()
 
