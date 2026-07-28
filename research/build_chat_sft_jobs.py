@@ -4,8 +4,8 @@
 
 두 가지를 겨냥한다.
 
-(1) 확정도 구분. 지금 챗 경로는 BM25 상위 20개를 평평하게 던져서, 32B가 판정해 DB에
-    넣어둔 weight(확정 1.0 / 조건부 0.9 / 의지예정 0.7 / 제안검토 0.45 …)가 놀고 있다.
+(1) 확정도 구분. 지금 챗 경로는 BM25 상위 20개를 평평하게 던져서, 32B가 내린 확정도
+    판정(확정 / 조건부확정 / 의지예정 / 제안검토 …)이 놀고 있다.
     사내에서 제일 많이 묻는 건 "그거 정해진 거야, 얘기만 나온 거야?"인데 지금 모델은
     그 차이를 볼 수 없다. 사실마다 등급을 붙여 주고, 교사에게 구분해 답하라고 지시한다.
     → 학생이 "확정됐어요" vs "논의만 됐어요"를 가려 말하는 걸 배운다.
@@ -14,12 +14,19 @@
     질문 주제로 갈아끼우고 실명까지 붙였다). 답변 잘한 사례만 모으면 이 능력은 안 생기므로
     답이 없는 질문을 일부러 섞는다.
 
-가중치 등급 표기는 weight 값에서 되돌린다(backfill_weights.py의 commitment×salience).
+등급 표기는 판정 결과(runs/node_weights.json)의 commitment를 **직접** 읽는다.
+
+  주의 — 예전에는 DB의 weight 값을 구간으로 잘라 등급을 되돌렸다. 그건 틀린 방법이다.
+  weight = commitment 계수 × salience 계수라서 곱을 되돌릴 수 없다. 실측하면 940건 중
+  258건(27%)이 잘못된 등급을 달았고, 특히 `확정 × supporting = 0.75`가 전부 [조건부]로
+  찍혔다 — 학습 데이터의 [조건부] 229건이 100% 오탐이고, 진짜 조건부 8건은 단 하나도
+  [조건부]로 안 갔다. 라벨이 정확히 뒤집혀 있었다. weight는 검색 랭킹 정렬용으로만 쓴다.
 
 사용: venv/bin/python build_chat_sft_jobs.py --out chat_sft_jobs.jsonl
 """
 import argparse
 import json
+import os
 import random
 
 import psycopg2
@@ -38,21 +45,22 @@ SYSTEM = """당신은 사내 지식그래프를 위키처럼 참고해 답하는
   · [조건부] 는 조건이 붙은 것 — 그 조건을 함께 말하세요.
   · [예정] 은 계획·의지 단계 — "~할 예정이었어요"처럼 여지를 남기세요.
   · [논의] 는 제안·검토 단계로 확정이 아닙니다 — "확정된 건 아니고 논의됐어요"라고 분명히 구분하세요.
+  · [미분류] 는 아직 확정도 판정을 받지 않은 사실입니다 — 내용만 전하고 확정도를 단정하지 마세요.
 - 확정된 것과 논의 중인 것이 섞여 있으면 둘을 구분해서 말하세요. 논의 단계를 확정처럼 말하면 안 됩니다.
 - 답변은 한국어 해요체로, 2~5문장 이내로 간결하게.
 - 근거가 된 사실을 자연스럽게 녹여 설명하되, 번호나 원문을 그대로 나열하지는 마세요."""
 
-# weight = commitment 계수 × salience 계수 → 등급 라벨로 되돌린다.
-def grade(weight):
-    if weight is None:
-        return "미분류"
-    if weight >= 0.9:
-        return "확정"
-    if weight >= 0.75:
-        return "조건부"
-    if weight >= 0.5:
-        return "예정"
-    return "논의"
+# 판정 라벨 → 프롬프트에 보여줄 등급. 되돌리는 게 아니라 그대로 옮긴다.
+# 당위("~해야 한다")와 비결정(서술·질문)은 결정이 아니므로 확정 쪽에 붙이면 안 된다.
+# 둘 다 8건뿐이라 별도 등급을 만들지 않고 [논의]로 보낸다 — "확정이 아님"은 맞게 전달된다.
+GRADE_OF = {"확정": "확정", "조건부확정": "조건부", "의지예정": "예정",
+            "제안검토": "논의", "당위": "논의", "비결정": "논의"}
+
+
+def load_grades(path="runs/node_weights.json"):
+    """(document_id, subject) → 등급. backfill_weights.py와 같은 키 규칙을 쓴다."""
+    return {(m["doc_id"], "결정:" + m["topic"].strip()): GRADE_OF[m["commitment"]]
+            for m in json.load(open(path))}
 
 
 ABSENT_TEMPLATES = [
@@ -80,22 +88,27 @@ def main():
     ap.add_argument("--top-k", type=int, default=20)
     args = ap.parse_args()
 
-    conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc", password="changeme")
+    grades = load_grades()
+    conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc",
+                            password=os.environ["MYDOC_DB_PASSWORD"])
     cur = conn.cursor()
-    cur.execute("SELECT subject, predicate, object, kind, statement, weight FROM knowledge_triple")
+    cur.execute("SELECT document_id, subject, predicate, object, kind, statement "
+                "FROM knowledge_triple")
     rows = cur.fetchall()
     conn.close()
-    bm25 = BM25Okapi([toks(f"{s} {p} {o} {st}") for s, p, o, k, st, w in rows])
-    graded = sum(1 for r in rows if r[5] is not None)
-    print(f"[corpus] 트리플 {len(rows)} · 가중치 보유 {graded} ({graded/len(rows):.0%})")
+    bm25 = BM25Okapi([toks(f"{s} {p} {o} {st}") for d, s, p, o, k, st in rows])
+
+    from collections import Counter
+    dist = Counter(grades.get((str(d), s), "미분류") for d, s, p, o, k, st in rows)
+    print(f"[corpus] 트리플 {len(rows)} · 등급 분포 {dict(dist)}")
 
     def facts_for(question):
         scores = bm25.get_scores(toks(question))
         top = sorted(range(len(rows)), key=lambda i: -scores[i])[:args.top_k]
         text = ""
         for n, i in enumerate(top, 1):
-            s, p, o, k, st, w = rows[i]
-            text += f"{n}. [{grade(w)}] [{k}] {s} — {p} — {o}"
+            d, s, p, o, k, st = rows[i]
+            text += f"{n}. [{grades.get((str(d), s), '미분류')}] [{k}] {s} — {p} — {o}"
             if st:
                 text += f"  ({st})"
             text += "\n"

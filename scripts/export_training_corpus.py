@@ -17,13 +17,14 @@ M19-0: 학습·평가 코퍼스 export — (원문 → 구조화 추출 JSON) �
 사용: python export_training_corpus.py > corpus.jsonl
 """
 import json
+import os
 import re
 import sys
 from collections import defaultdict
 
 import psycopg2
 
-DSN = dict(host="localhost", dbname="mydoc", user="mydoc", password="changeme")
+DSN = dict(host="localhost", dbname="mydoc", user="mydoc", password=os.environ["MYDOC_DB_PASSWORD"])
 
 TIRO_META = re.compile(r"^(작성자|참석자|녹음 시작|길이|출처)\s*:")
 LEADING_TIMECODE = re.compile(r"^\[\d[^\]]{0,39}\]\s*")

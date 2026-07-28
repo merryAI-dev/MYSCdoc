@@ -98,6 +98,12 @@ def main():
             refused = any(m in answer for m in REFUSAL_MARKERS)
             if label.startswith("unanswerable"):
                 # 교사가 거절 못 한 건 뺀다 — 지어내는 법을 가르치게 된다.
+                #
+                # 알려진 결함(2026-07-28 감사): 이 부분일치 검사는 이 목적에 부족하다.
+                # dev 20건을 읽어 보니 교사가 실제로 답을 지어낸 2건이 답변 뒤쪽에
+                # '없어요'를 달고 있어 통과했다. 즉 걸러야 할 것을 정확히 못 거른다.
+                # 제대로 하려면 judge_answers.py의 32B 3분류(거절/부분답변/답변)와
+                # fabricated 판정을 여기에 걸어야 한다. 교사 재생성 시 함께 고칠 것.
                 if not refused:
                     s["dropped"] += 1
                     dropped += 1

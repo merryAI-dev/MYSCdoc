@@ -35,7 +35,7 @@ def toks(text):
 
 def main():
     conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc",
-                            password="changeme")
+                            password=os.environ["MYDOC_DB_PASSWORD"])
     cur = conn.cursor()
     cur.execute("SELECT document_id, subject, predicate, object, statement FROM knowledge_triple")
     rows = cur.fetchall()

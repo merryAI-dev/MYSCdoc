@@ -17,6 +17,7 @@ known-item retrieval: DB의 reified 결정 노드마다 "topic은 어떻게 정�
 """
 import json
 import math
+import os
 from datetime import datetime, timezone
 
 import psycopg2
@@ -39,7 +40,7 @@ def tokens(text):
 
 def main():
     conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc",
-                            password="changeme")
+                            password=os.environ["MYDOC_DB_PASSWORD"])
     cur = conn.cursor()
     cur.execute("""SELECT id, document_id, subject, predicate, object, statement, event_at
                    FROM knowledge_triple""")

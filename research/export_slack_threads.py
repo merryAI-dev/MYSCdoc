@@ -17,10 +17,11 @@
 """
 import argparse
 import json
+import os
 
 import psycopg2
 
-DSN = dict(host="localhost", dbname="mydoc", user="mydoc", password="changeme")
+DSN = dict(host="localhost", dbname="mydoc", user="mydoc", password=os.environ["MYDOC_DB_PASSWORD"])
 
 
 def main():

@@ -13,6 +13,7 @@ tacit 트리플은 이번 판정 범위 밖 — null(중립)로 남긴다.
 사용: venv/bin/python backfill_weights.py
 """
 import json
+import os
 
 import psycopg2
 
@@ -20,7 +21,7 @@ COMMIT_W = {"확정": 1.0, "조건부확정": 0.9, "의지예정": 0.7,
             "제안검토": 0.45, "당위": 0.4, "비결정": 0.2}
 SAL_W = {"core": 1.0, "supporting": 0.75, "peripheral": 0.5}
 
-conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc", password="changeme")
+conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc", password=os.environ["MYDOC_DB_PASSWORD"])
 cur = conn.cursor()
 
 updated = missed = 0

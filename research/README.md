@@ -99,6 +99,10 @@ held-out 157문항(32B가 합성한 어휘 간극 질문), 로컬 BM25:
 | 포화된 baseline | naive hit@1이 이미 92.9% | 노드 라벨 어휘로 질문을 만듦 | 학습 여지가 있는지 먼저 측정 |
 | GPU 고아 프로세스 | 70GB 점유로 재시작 실패 | `pkill`이 vLLM 자식을 못 죽임 | 시작 전 `nvidia-smi`로 여유 확인 |
 | Gemini 스키마 폭주 | title 무한 반복, 파싱 7/17 | `propertyOrdering`·`required` 미지정 | OpenAPI 방언은 순서를 보장하지 않음 |
+| **등급 역산** | 학습 데이터 27%가 오라벨, `[조건부]` 229건 전부 오탐 | `weight = 확정도 × 위상`인데 그 **곱을 구간으로 잘라 등급을 되돌림** | **파생값에서 원본을 복원하지 말 것.** 원본 라벨을 따로 보관 |
+| **키워드 거절 탐지** | 정답 47건 중 28건(60%)을 거절로 오탐, 지어낸 답 2건은 거절 성공으로 집계 | "없어요" 부분일치. 교사 문체가 유보를 앞세우고 답하는 형태 | **지표를 골드에 먼저 걸어볼 것.** 교사 자신이 0.70이면 그 지표는 못 쓴다 |
+| **선택셋 = 발표셋** | 최종 수치가 체크포인트 6개에 대한 선택 최적값 | 같은 66건으로 학습 중 평가·체크포인트 선택·논문 수치를 다 냄 | 고르는 셋과 발표하는 셋을 나눌 것 |
+| **런처가 다른 스크립트 호출** | Honesty 선택 코드를 짜 놓고 loss 선택으로 학습됨 | `night_chat_sft.sh`가 `train_exaone_sft.py`(`load_best_model_at_end=True`)를 부름 | **실행 스크립트도 코드다.** 감사 범위에 넣을 것 |
 
 ---
 
@@ -139,8 +143,12 @@ held-out 157문항(32B가 합성한 어휘 간극 질문), 로컬 BM25:
 | [`build_chat_sft_jobs.py`](build_chat_sft_jobs.py) | 등급 붙인 사실 목록 + 거절 질문 |
 | [`build_hard_abstention.py`](build_hard_abstention.py) | **어려운 거절** — 골드만 제거해 "주제는 겹치는데 답은 없음" |
 | [`gen_chat_teacher_v2.py`](gen_chat_teacher_v2.py) | 32B 교사 — 등급 근거 설명 포함 |
+| [`build_chat_eval_split.py`](build_chat_eval_split.py) | 선택셋/테스트셋 분할. 학습 질문 제외, 짝은 한쪽에 통째로 |
+| [`judge_answers.py`](judge_answers.py) | **32B 채점** — 거절/부분답변/답변 3분류 + 지어냄. 키워드 탐지기를 대체 |
 | [`../scripts/train_chat_sft.py`](../scripts/train_chat_sft.py) | 학습. 데이터 검문 → 설정 덤프 → 에폭별 저장 |
-| [`../scripts/select_chat_checkpoint.py`](../scripts/select_chat_checkpoint.py) | **Honesty Score로 체크포인트 선택** (loss 아님) |
+| [`../scripts/select_chat_checkpoint_vllm.py`](../scripts/select_chat_checkpoint_vllm.py) | 체크포인트별 답변 생성 (LoRA 핫스왑). 채점은 위 파일이 |
+| [`../scripts/select_chat_checkpoint.py`](../scripts/select_chat_checkpoint.py) | HF 판. transformers만으로 재현하려는 경우 |
+| [`night_chat_sft.sh`](night_chat_sft.sh) | 전체 실행 — v1/v2를 GPU 한 장씩 잡아 병렬 학습 |
 
 ### 3-5. 평가·기타
 
@@ -201,7 +209,7 @@ held-out 157문항(32B가 합성한 어휘 간극 질문), 로컬 BM25:
 | [OCC-RAG](https://arxiv.org/abs/2606.00683) | **0** | [repo](https://github.com/optimal-cognitive-core/OCC-RAG) (43★) | **arXiv 프리프린트, 학습 코드 미공개(추론 예제만), 인용 0.** "0.6B에서 거절 6.3%→86.9%"는 흥미롭지만 **강한 선례로 쓰면 안 됨** |
 | [AbstentionBench](https://arxiv.org/abs/2506.09038) (NeurIPS 2025) | 99 | [repo](https://github.com/facebookresearch/AbstentionBench) (87★) | 거절 F1 정의, 평가 3단 분리 구조 |
 | [Know Your Limits](https://aclanthology.org/2025.tacl-1.26/) (TACL 2025) | 115 | [repo](https://github.com/chenjux/abstention) (9★) | 거절 지표 카탈로그 |
-| [Hallucination Tax of RFT](https://arxiv.org/abs/2505.13988) (Findings EMNLP 2025) | 34 | 없음(데이터만) | **7B 순정 거절률 0.30** — 우리 1.2B의 0.33이 소형 탓이 아님을 보이는 수치 |
+| [Hallucination Tax of RFT](https://arxiv.org/abs/2505.13988) (Findings EMNLP 2025) | 34 | 없음(데이터만) | 7B 순정 거절률 0.30. ~~우리 1.2B의 0.33이 소형 탓이 아님~~ — **이 비교는 철회한다.** 우리 0.33은 2/6이고 95% 신뢰구간이 [0.04, 0.78]이라 0.30과 0도 함께 포함한다. n을 늘리기 전에는 아무 정보가 없다 |
 
 ### 언어학·주석 체계
 

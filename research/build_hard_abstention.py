@@ -16,11 +16,13 @@
 """
 import argparse
 import json
+import os
 import random
 
 import psycopg2
 from rank_bm25 import BM25Okapi
 
+import build_chat_sft_jobs
 import korean_syntax as ks
 
 CONTENT = ("NNG", "NNP", "NNB", "NR", "SL", "SN", "VV", "VA", "XR")
@@ -30,16 +32,10 @@ def toks(text):
     return [m.form for m in ks.kiwi().tokenize(text or "") if m.tag in CONTENT]
 
 
-def grade(weight):
-    if weight is None:
-        return "미분류"
-    if weight >= 0.9:
-        return "확정"
-    if weight >= 0.75:
-        return "조건부"
-    if weight >= 0.5:
-        return "예정"
-    return "논의"
+# 등급은 판정 결과에서 직접 읽는다. weight 역산은 곱을 되돌릴 수 없어 27%가 틀렸다
+# — 자세한 이유는 build_chat_sft_jobs.py 문서화 참고.
+GRADE_OF = build_chat_sft_jobs.GRADE_OF
+load_grades = build_chat_sft_jobs.load_grades
 
 
 def main():
@@ -50,13 +46,15 @@ def main():
     ap.add_argument("--top-k", type=int, default=20)
     args = ap.parse_args()
 
-    conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc", password="changeme")
+    grades = load_grades()
+    conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc",
+                            password=os.environ["MYDOC_DB_PASSWORD"])
     cur = conn.cursor()
-    cur.execute("""SELECT document_id, subject, predicate, object, kind, statement, weight
+    cur.execute("""SELECT document_id, subject, predicate, object, kind, statement
                    FROM knowledge_triple""")
     rows = cur.fetchall()
     conn.close()
-    bm25 = BM25Okapi([toks(f"{s} {p} {o} {st}") for _, s, p, o, k, st, w in rows])
+    bm25 = BM25Okapi([toks(f"{s} {p} {o} {st}") for _, s, p, o, k, st in rows])
 
     # 노드 키 → 트리플 인덱스 (골드 제거용)
     node_rows = {}
@@ -78,9 +76,9 @@ def main():
         for i in order:
             if i in exclude or scores[i] <= 0:
                 continue
-            did, s, p, o, k, st, w = rows[i]
+            did, s, p, o, k, st = rows[i]
             picked += 1
-            text += f"{picked}. [{grade(w)}] [{k}] {s} — {p} — {o}"
+            text += f"{picked}. [{grades.get((str(did), s), '미분류')}] [{k}] {s} — {p} — {o}"
             if st:
                 text += f"  ({st})"
             text += "\n"
