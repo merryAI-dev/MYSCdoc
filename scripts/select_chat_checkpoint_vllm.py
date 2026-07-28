@@ -30,12 +30,18 @@ import json
 import os
 
 
+def checkpoint_name(prefix, step):
+    return f"{prefix}/step{step}" if prefix else f"step{step}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True)
     ap.add_argument("--ckpt-root", default=None)
     ap.add_argument("--label", default="base",
                     help="어댑터 없는 대상의 이름. 병합 모델을 잴 때 겹치지 않게 바꾼다")
+    ap.add_argument("--prefix", default="", help="체크포인트 이름 접두사(예: control, h1)")
+    ap.add_argument("--no-base", action="store_true", help="중복 base 생성을 생략한다")
     ap.add_argument("--eval", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--max-new-tokens", type=int, default=400)
@@ -67,11 +73,12 @@ def main():
     # 채점기가 볼 '주어진 사실' — 프롬프트의 사용자 메시지를 그대로 넘긴다.
     facts = [[m for m in c["prompt"] if m["role"] == "user"][-1]["content"] for c in cases]
 
-    targets = [(args.label, None)]
+    targets = [] if args.no_base else [(args.label, None)]
     if args.ckpt_root:
         for path in sorted(glob.glob(f"{args.ckpt_root}/checkpoint-*"),
                            key=lambda p: int(p.rsplit("-", 1)[1])):
-            targets.append((f"step{path.rsplit('-', 1)[1]}", os.path.abspath(path)))
+            step = path.rsplit("-", 1)[1]
+            targets.append((checkpoint_name(args.prefix, step), os.path.abspath(path)))
 
     dump = {}
     for i, (name, adapter) in enumerate(targets):
