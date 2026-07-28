@@ -43,10 +43,13 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--eval-out", default="hard_abstention_eval.jsonl")
     ap.add_argument("--n", type=int, default=90)
+    ap.add_argument("--grades-v3", default=None,
+                    help="judge v3 출력(jsonl). build_chat_sft_jobs.py와 같은 v3 등급 표기")
     ap.add_argument("--top-k", type=int, default=20)
     args = ap.parse_args()
 
-    grades = load_grades()
+    v3 = bool(args.grades_v3)
+    grades = (build_chat_sft_jobs.load_grades_v3(args.grades_v3) if v3 else load_grades())
     conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc",
                             password=os.environ["MYDOC_DB_PASSWORD"])
     cur = conn.cursor()
@@ -78,7 +81,9 @@ def main():
                 continue
             did, s, p, o, k, st = rows[i]
             picked += 1
-            text += f"{picked}. [{grades.get((str(did), s), '미분류')}] [{k}] {s} — {p} — {o}"
+            tag = (build_chat_sft_jobs.grade_tag_v3(grades, (str(did), s)) if v3
+                   else f"[{grades.get((str(did), s), '미분류')}]")
+            text += f"{picked}. {tag} [{k}] {s} — {p} — {o}"
             if st:
                 text += f"  ({st})"
             text += "\n"

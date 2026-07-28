@@ -63,6 +63,56 @@ def load_grades(path="runs/node_weights.json"):
             for m in json.load(open(path))}
 
 
+# ---- v3: 조건부를 척도에서 빼고 접미사로 붙인다 (RESEARCH-plan-v3.md H3) ----
+# 등급은 3점(확정/예정/논의)이고 조건은 "[확정] (조건: 예산 승인 시)" 형태로 따라간다.
+# 당위·비결정은 결정이 아니므로 [논의]로 — "확정 아님"만 정확히 전달되면 된다.
+GRADE_OF_V3 = {"확정": "확정", "예정": "예정", "논의": "논의", "당위": "논의", "비결정": "논의"}
+
+
+def load_grades_v3(path):
+    """judge_weights_v2.py --prompt v3 출력(topic 포함) → (doc_id, subject) → (등급, 조건)."""
+    out = {}
+    for line in open(path):
+        row = json.loads(line)
+        for j in row["judgments"]:
+            if j.get("commitment") is None or not j.get("topic"):
+                continue
+            cond = (j.get("condition") or "").strip() if j.get("conditional") else ""
+            out[(row["doc_id"], "결정:" + j["topic"].strip())] = \
+                (GRADE_OF_V3[j["commitment"]], cond)
+    return out
+
+
+def grade_tag_v3(grades, key):
+    g, cond = grades.get(key, ("미분류", ""))
+    return f"[{g}] (조건: {cond})" if cond else f"[{g}]"
+
+
+# H1(부분답변): v2 학습 목표에는 전부답/거절 두 형태만 있었고, 실제 교사 골드는
+# "확정된 건 없어요, 다만 ~는 있어요" 같은 중간 형태였다. 목표에 없는 형태를 지표만으로
+# 다루다 과잉거절 22%가 나왔다. 세 형태를 명시한다(XSTest의 3분류와 같은 구조).
+SYSTEM_V3 = """당신은 사내 지식그래프를 위키처럼 참고해 답하는 어시스턴트입니다.
+아래에 주어진 '지식그래프 사실'만 근거로 답하세요. 다음을 반드시 지키세요:
+
+응답은 세 가지 중 하나입니다. 사실이 질문을 얼마나 커버하는지로 고르세요:
+- 사실이 질문을 커버하면 → 답하세요.
+- **일부만 커버하면 → 아는 부분만 답하고, 나머지는 "지식그래프에 없다"고 분명히 말하세요.**
+  아는 부분까지 거절하지 마세요.
+- 전혀 커버하지 못하면 → "지식그래프에 아직 그 내용이 없어요"라고 말하고, 대신 그래프에
+  있는 인접 내용을 한 문장으로 알려주세요. 지어내지 마세요.
+
+각 사실 앞의 [확정도] 표시를 답변에 녹이세요:
+  · [확정] — 팀이 합의해 실행이 전제된 것. "~하기로 했어요"처럼 단정합니다.
+  · [예정] — 계획·의지 단계. "~할 예정이었어요"처럼 여지를 남깁니다.
+  · [논의] — 제안·검토 단계로 확정이 아닙니다. "확정된 건 아니고 논의됐어요"라고 구분합니다.
+  · [미분류] — 확정도 판정이 없는 사실. 내용만 전하고 확정도를 단정하지 마세요.
+  · (조건: …) 이 붙은 사실은 그 조건이 충족되어야 성립합니다 — 조건을 반드시 함께 말하세요.
+
+- 확정과 논의가 섞여 있으면 나눠 말하세요. 논의를 확정처럼 말하면 안 됩니다.
+- 왜 그렇게 판단했는지가 드러나야 합니다 — "합의된 사항이라" / "아직 검토 단계라"처럼.
+- 한국어 해요체, 2~5문장."""
+
+
 ABSENT_TEMPLATES = [
     "사무실 {x} 관련해서 정해진 규칙이 있나요?",
     "{x} 정책이 어떻게 바뀌었죠?",
@@ -85,10 +135,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--answerable", type=int, default=260)
+    ap.add_argument("--grades-v3", default=None,
+                    help="judge v3 출력(jsonl). 주면 3점 등급+조건 접미사와 부분답변 프롬프트(v3)를 쓴다")
     ap.add_argument("--top-k", type=int, default=20)
     args = ap.parse_args()
 
-    grades = load_grades()
+    v3 = bool(args.grades_v3)
+    system = SYSTEM_V3 if v3 else SYSTEM
+    grades = load_grades_v3(args.grades_v3) if v3 else load_grades()
     conn = psycopg2.connect(host="localhost", dbname="mydoc", user="mydoc",
                             password=os.environ["MYDOC_DB_PASSWORD"])
     cur = conn.cursor()
@@ -99,7 +153,8 @@ def main():
     bm25 = BM25Okapi([toks(f"{s} {p} {o} {st}") for d, s, p, o, k, st in rows])
 
     from collections import Counter
-    dist = Counter(grades.get((str(d), s), "미분류") for d, s, p, o, k, st in rows)
+    dist = Counter((grades.get((str(d), s), ("미분류", ""))[0] if v3
+                    else grades.get((str(d), s), "미분류")) for d, s, p, o, k, st in rows)
     print(f"[corpus] 트리플 {len(rows)} · 등급 분포 {dict(dist)}")
 
     def facts_for(question):
@@ -108,14 +163,15 @@ def main():
         text = ""
         for n, i in enumerate(top, 1):
             d, s, p, o, k, st = rows[i]
-            text += f"{n}. [{grades.get((str(d), s), '미분류')}] [{k}] {s} — {p} — {o}"
+            tag = grade_tag_v3(grades, (str(d), s)) if v3 else f"[{grades.get((str(d), s), '미분류')}]"
+            text += f"{n}. {tag} [{k}] {s} — {p} — {o}"
             if st:
                 text += f"  ({st})"
             text += "\n"
         return text
 
     def job(question, label):
-        return {"label": label, "question": question, "system": SYSTEM,
+        return {"label": label, "question": question, "system": system,
                 "user": f"질문: {question}\n\n지식그래프 사실:\n{facts_for(question)}\n"
                         f"위 사실만 근거로, 각 사실의 확정도를 구분해서 답하세요.\n"}
 

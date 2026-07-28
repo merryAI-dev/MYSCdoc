@@ -63,6 +63,20 @@ SYSTEM = """당신은 회의록 분석 전문가입니다. 회의록 원문과 �
 
 지정된 JSON으로만 답하세요."""
 
+# v3 (2026-07-28): 실현성 축 경계를 명시한다. v2 프롬프트로 두 번 판정했을 때
+# 예정↔확정이 145/924건(15.7%) 흔들렸다 — temperature 0, 같은 모델, 같은 프롬프트인데도.
+# 가설(H4): 경계 규칙이 없어 모델이 회색 지대를 임의로 갈랐다. 규칙과 시제 단서를 준다.
+# v2 정의는 그대로 두고 여기만 추가 — v1/v2 대조 재현성을 지키기 위해 v2를 수정하지 않는다.
+SYSTEM_V3 = SYSTEM.replace(
+    """   - "확정": 팀이 합의했고 실행이 전제됨. '결정'이라는 단어가 없어도 문맥상 확정이면 확정.
+   - "예정": 계획·의지·약속 단계. 아직 합의된 확정은 아니지만 실행 방향이 정해짐.""",
+    """   - "확정": 합의가 **이미 이루어져** 실행이 전제됨. 단서: "~하기로 했다", "~하기로 결정",
+     합의·승인이 완료된 과거형 표현. '결정'이라는 단어가 없어도 문맥상 합의가 끝났으면 확정.
+   - "예정": 실행 의사·계획은 있으나 **합의 발화가 아직 없음**. 단서: "~할 예정", "~하려고 한다",
+     "~하고자 함". 개인의 의지 표명이나 잠정 일정은 합의가 아니므로 예정.
+   ※ 확정/예정 경계 규칙: 이 결정을 뒤집으려면 회의가 다시 필요한가? 필요하면 확정,
+     담당자 재량으로 바뀔 수 있으면 예정.""")
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -89,6 +103,8 @@ def main():
     ap.add_argument("--jobs", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--tp", type=int, default=2)
+    ap.add_argument("--prompt", choices=["v2", "v3"], default="v2",
+                    help="v3: 실현성 축 경계 규칙 추가(H4). v2는 대조 재현용으로 동결")
     ap.add_argument("--max-new-tokens", type=int, default=2560)
     ap.add_argument("--max-model-len", type=int, default=32768)
     args = ap.parse_args()
@@ -105,7 +121,7 @@ def main():
     for j in jobs:
         listing = "\n".join(f'{it["id"]}: {it["text"]}' for it in j["items"])
         prompts.append(tok.apply_chat_template(
-            [{"role": "system", "content": SYSTEM},
+            [{"role": "system", "content": SYSTEM_V3 if args.prompt == "v3" else SYSTEM},
              {"role": "user", "content": f"## 회의록 원문\n{j['context']}\n\n"
                                          f"## 결정 후보 목록\n{listing}\n\n"
                                          f"각 후보를 판정하세요."}],
@@ -137,6 +153,7 @@ def main():
                     commit_dist[v["commitment"]] += 1
                     cond_count += bool(v.get("conditional"))
                 rows.append({"id": it["id"], "text": it["text"],
+                             "topic": it.get("topic"),
                              "commitment": v.get("commitment") if v else None,
                              "conditional": v.get("conditional") if v else None,
                              "condition": v.get("condition", "") if v else "",
