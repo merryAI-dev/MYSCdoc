@@ -230,8 +230,30 @@ held-out 157문항(32B가 합성한 어휘 간극 질문), 로컬 BM25:
 
 ---
 
+## 5-1. 연산 비용 요약
+
+전체 실측은 [연산 기록](../docs/RESEARCH-compute-log.md)에 있습니다. 요점만:
+
+| | |
+|---|---|
+| 1.2B LoRA 학습 | 6~12분 (H100 1장) — **병목 아님** |
+| 32B 판정 924건 | 74초 (tp=2) |
+| 학생 추출 524청크 | 87초 · 같은 입력에 Gemini는 220초 |
+| GRPO 검색 RL 500스텝 | 19분 |
+| **체크포인트 평가** | **RL 20개에 약 1시간 — 여기가 병목** |
+
+평가가 느린 이유는 체크포인트마다 모델을 다시 올리고 케이스를 한 건씩 생성하기 때문입니다.
+vLLM LoRA 핫스왑 판([`select_chat_checkpoint_vllm.py`](../scripts/select_chat_checkpoint_vllm.py))이
+베이스를 한 번만 올리고 배치로 처리합니다. transformers만으로 검증하려는 분을 위해
+HF 판도 함께 둡니다.
+
+**세션 전체에서 GPU 실사용은 1~2시간**이고 나머지는 코드 작성과 재작업이었습니다.
+재작업 원인은 §2 실패 목록과 연산 기록 §5에 있습니다 — 이 규모에서는 GPU 병렬화보다
+실행 전 검증이 총 소요를 더 줄입니다.
+
 ## 6. 관련 문서
 
+- [연산 기록](../docs/RESEARCH-compute-log.md) — 실측 시간·비용·시행착오
 - [연구 설계 v2](../docs/RESEARCH-plan-v2.md) — 가설·비열등성 검정 설계·검정력 계산
 - [검색 RL 가설 20](../docs/RESEARCH-search-rl.md) — 문헌 근거별 가설과 검증 방법
 - [등급 조건화 배경](../docs/RESEARCH-grade-conditioning.md) — SFT 필요성·축 분리 논거
