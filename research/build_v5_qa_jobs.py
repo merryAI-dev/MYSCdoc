@@ -54,6 +54,7 @@ def main():
     parser.add_argument("--corpus")
     parser.add_argument("--out")
     parser.add_argument("--manifest")
+    parser.add_argument("--channel", action="append", default=[])
     parser.add_argument("--seed", type=int, default=20260729)
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
@@ -71,6 +72,9 @@ def main():
         parser.error("--corpus, --out and --manifest are required")
 
     rows = read_jsonl(args.corpus)
+    if args.channel:
+        allowed = set(args.channel)
+        rows = [row for row in rows if row["channel_id"] in allowed]
     keys = [(row["channel_id"], row["thread_ts"]) for row in rows]
     if len(keys) != len(set(keys)):
         raise SystemExit("duplicate source thread")

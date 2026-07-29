@@ -729,6 +729,10 @@ def parse_args():
     ap.add_argument("--max-seq-len", type=int, default=8192)
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--lora-dropout", type=float, default=0.1)
+    ap.add_argument("--train-batch-size", type=int, default=2)
+    ap.add_argument("--gradient-accumulation-steps", type=int, default=4)
+    ap.add_argument("--dataloader-num-workers", type=int, default=0)
+    ap.add_argument("--no-gradient-checkpointing", action="store_true")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--protocol", choices=("standard", "v4"), default="standard")
     ap.add_argument("--baseline-data-dir")
@@ -739,6 +743,8 @@ def parse_args():
     ap.add_argument("--check-only", action="store_true")
     ap.add_argument("--resume-from-checkpoint", nargs="?", const="latest")
     args = ap.parse_args()
+    if args.train_batch_size < 1 or args.gradient_accumulation_steps < 1:
+        ap.error("batch size와 gradient accumulation은 1 이상이어야 한다")
     if not args.self_check:
         missing = [name for name in ("model", "data_dir", "out") if not getattr(args, name)]
         if missing:
@@ -782,7 +788,8 @@ def main():
         raise PreflightError(f"{bad}에 max_length 절단이 있다")
 
     train_rows = len(current["train"]["rows"])
-    updates_per_epoch = math.ceil(math.ceil(train_rows / 2) / 4)
+    updates_per_epoch = math.ceil(
+        math.ceil(train_rows / args.train_batch_size) / args.gradient_accumulation_steps)
     total_steps = math.ceil(updates_per_epoch * args.epochs)
     warmup_steps = math.ceil(total_steps * 0.1)
     if args.protocol == "v4" and (total_steps, warmup_steps) != (342, 35):
@@ -802,8 +809,8 @@ def main():
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
         warmup_steps=warmup_steps,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
+        per_device_train_batch_size=args.train_batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
         max_length=args.max_seq_len,
         packing=False,
         completion_only_loss=True,
@@ -815,7 +822,7 @@ def main():
         adam_beta2=0.999,
         adam_epsilon=1e-8,
         max_grad_norm=1.0,
-        gradient_checkpointing=True,
+        gradient_checkpointing=not args.no_gradient_checkpointing,
         loss_type="chunked_nll",
         model_init_kwargs={"dtype": "float32"},
         use_cache=False,
@@ -829,7 +836,7 @@ def main():
         seed=args.seed,
         data_seed=args.seed,
         full_determinism=True,
-        dataloader_num_workers=0,
+        dataloader_num_workers=args.dataloader_num_workers,
         train_sampling_strategy="random",
         shuffle_dataset=False,
         restore_callback_states_from_checkpoint=True,
@@ -861,6 +868,10 @@ def main():
         "recipe": {
             "epochs": args.epochs, "lr": args.lr, "max_seq_len": args.max_seq_len,
             "lora_r": args.lora_r, "lora_dropout": args.lora_dropout,
+            "train_batch_size": args.train_batch_size,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "dataloader_num_workers": args.dataloader_num_workers,
+            "gradient_checkpointing": not args.no_gradient_checkpointing,
             "seed": args.seed, "total_steps": total_steps, "warmup_steps": warmup_steps,
             "target_modules": TARGET_MODULES,
         },
@@ -881,6 +892,10 @@ def main():
             "model": args.model, "epochs": args.epochs, "lr": args.lr,
             "max_seq_len": args.max_seq_len, "lora_r": args.lora_r,
             "lora_dropout": args.lora_dropout, "seed": args.seed,
+            "train_batch_size": args.train_batch_size,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "dataloader_num_workers": args.dataloader_num_workers,
+            "gradient_checkpointing": not args.no_gradient_checkpointing,
         },
         "run_signature": sha256_bytes(canonical_json(signature_input).encode("utf-8")),
         "signature_input": signature_input,

@@ -61,8 +61,7 @@ def valid_qa(qa, lines):
     joined = " ".join(evidence)
     entity = qa["entity"].strip()
     question, answer = qa["question"].strip(), qa["answer"].strip()
-    if (len(entity) < 2 or entity not in joined or SLACK_USER.fullmatch(entity)
-            or not re.search(r"[가-힣]", entity)):
+    if len(entity) < 2 or entity not in joined or SLACK_USER.fullmatch(entity):
         return None, "bad_entity"
     if len(question) < 4 or len(answer) < 8 or entity not in question:
         return None, "bad_text"
@@ -87,6 +86,11 @@ def main():
                 "answer": "알타바 설명회를 열기로 했어요.", "evidence_ids": ["L01"],
                 "commitment": "confirmed", "salience": "core"}
         assert valid_qa(good, ["알타바 설명회를 열기로 했어요."])[0]
+        english = {**good, "entity": "UN Women", "question": "UN Women 행사는?",
+                   "answer": "UN Women 행사를 열기로 했어요."}
+        assert valid_qa(english, ["UN Women 행사를 열기로 했어요."])[0]
+        slack_id = {**good, "entity": "U09AA1HN005", "question": "U09AA1HN005 근황은?"}
+        assert valid_qa(slack_id, ["U09AA1HN005: 설명회를 열기로 했어요."])[1] == "bad_entity"
         bad = {**good, "answer": "2027년에 열기로 했어요."}
         assert valid_qa(bad, ["알타바 설명회를 열기로 했어요."])[1] == "unsupported_number"
         print("SELF_CHECK_OK")

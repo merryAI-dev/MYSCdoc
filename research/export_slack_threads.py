@@ -28,6 +28,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--only-new", action="store_true")
+    ap.add_argument("--min-messages", type=int, default=0,
+                    help="override DB threshold; 1 includes standalone announcements")
     args = ap.parse_args()
 
     conn = psycopg2.connect(**DSN)
@@ -35,6 +37,8 @@ def main():
     cur.execute("SELECT min_messages FROM knowledge_setting LIMIT 1")
     row = cur.fetchone()
     min_messages = row[0] if row else 2
+    if args.min_messages:
+        min_messages = args.min_messages
 
     cur.execute("""
         SELECT channel_id, thread_ts
