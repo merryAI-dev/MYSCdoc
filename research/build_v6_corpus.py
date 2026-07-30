@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import unicodedata
 
-from build_v5_corpora import raft
+from build_v5_corpora import NUMBER, SYSTEM, completion, context, grounded, raft
 
 
 SALIENCE_SCORE = {"core": 1.0, "supporting": 0.6, "peripheral": 0.2}
@@ -61,6 +61,34 @@ def repeat_to(rows, count, name):
 
 def normalized_question(row):
     return " ".join(unicodedata.normalize("NFKC", row["question"]).split()).casefold()
+
+
+def multiturn_rows(rows, split):
+    groups = defaultdict(list)
+    for row in rows:
+        if row["split"] == split and row["kind"] == "atomic":
+            groups[row["source_key"]].append(row)
+    output = []
+    for source_key, items in groups.items():
+        items = stable(items, "multiturn-items:" + source_key)
+        for index in range(0, len(items) - 1, 2):
+            first, second = items[index:index + 2]
+            body, ids = context([first, second])
+            prompt = [
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": f"업무 기록:\n{body}\n\n질문: {first['question']}"},
+                {"role": "assistant", "content": completion(first["answer"], [ids[0]])[0]["content"]},
+                {"role": "user", "content": f"그와 관련해서, {second['question']}"},
+            ]
+            output.append({"prompt": prompt,
+                           "completion": completion(second["answer"], [ids[1]]),
+                           "question": second["question"], "label": "answerable_multiturn",
+                           "meta": {"task": "multiturn_grounded", "source_key": source_key,
+                                    "entity": second["entity"], "oracle_context_ids": [ids[1]],
+                                    "expected_answer": second["answer"],
+                                    "expected_numbers": NUMBER.findall(second["answer"]),
+                                    "first_question": first["question"]}})
+    return stable(output, "multiturn:" + split)
 
 
 def weight_group(source_key, rows, reverse=False, include_completion=True, require_mixed=True):
@@ -160,15 +188,24 @@ def build(args):
                            and row["kind"] == "atomic"], "qa-train")
     atomic_dev = stable([row for row in teacher if row["split"] == "dev"
                          and row["kind"] == "atomic"], "qa-dev")
-    qa_unique = [value for row in atomic_train
-                 for value in [raft(row, atomic_train)] if value]
-    qa_dev_unique = [value for row in atomic_dev
-                     for value in [raft(row, atomic_dev)] if value]
+    qa_builder = grounded if args.qa_mode == "grounded" else lambda row: raft(row, atomic_train)
+    qa_dev_builder = (grounded if args.qa_mode == "grounded"
+                      else lambda row: raft(row, atomic_dev))
+    qa_unique = [value for row in atomic_train for value in [qa_builder(row)] if value]
+    qa_dev_unique = [value for row in atomic_dev for value in [qa_dev_builder(row)] if value]
     train_qa_questions = {normalized_question(row) for row in qa_unique}
     qa_dev_unique = [row for row in qa_dev_unique
                      if normalized_question(row) not in train_qa_questions]
     qa_train = repeat_to(qa_unique, args.qa_count, "grounded QA")
     qa_dev = repeat_to(qa_dev_unique, args.qa_dev, "grounded QA dev")
+    multiturn_train_unique = multiturn_rows(teacher, "train")
+    multiturn_train_questions = {normalized_question(row) for row in multiturn_train_unique}
+    multiturn_dev_unique = [row for row in multiturn_rows(teacher, "dev")
+                            if normalized_question(row) not in multiturn_train_questions]
+    multiturn_train = repeat_to(multiturn_train_unique, args.multiturn_count,
+                                "Slack multiturn") if args.multiturn_count else []
+    multiturn_dev = repeat_to(multiturn_dev_unique, args.multiturn_dev,
+                              "Slack multiturn dev") if args.multiturn_dev else []
 
     root = Path(args.out_root)
     candidates = weight_rows(teacher, "train", False, False, require_mixed=False)
@@ -202,25 +239,34 @@ def build(args):
     weight_dev_unique = weight_rows(teacher, "dev", True, False)
     weight_dev = repeat_to(weight_dev_unique, args.weight_dev, "weight dev")
 
-    train = stable(general_train + qa_train + weight_train, "v6-train")
-    dev = stable(general_dev + qa_dev + weight_dev, "v6-dev")
+    train = stable(general_train + qa_train + multiturn_train + weight_train, "v6-train")
+    dev = stable(general_dev + qa_dev + multiturn_dev + weight_dev, "v6-dev")
     write_jsonl(root / "train.jsonl", train)
     write_jsonl(root / "dev.jsonl", dev)
     selection = weight_rows(teacher, "selection", False, False, require_mixed=False)
     sealed = weight_rows(teacher, "sealed", False, False, require_mixed=False)
     write_jsonl(root / "weight-selection.jsonl", selection)
     write_jsonl(root / "weight-sealed.jsonl", sealed)
+    multiturn_selection = multiturn_rows(teacher, "selection")
+    multiturn_sealed = multiturn_rows(teacher, "sealed")
+    write_jsonl(root / "multiturn-selection.jsonl", multiturn_selection)
+    write_jsonl(root / "multiturn-sealed.jsonl", multiturn_sealed)
     manifest = {
         "protocol": "v6-weight-first-lora-v1", "source_overlap": overlap,
         "train": {"rows": len(train), "general": len(general_train),
                   "slack_qa": len(qa_train), "slack_qa_unique": len(qa_unique),
+                  "slack_multiturn": len(multiturn_train),
                   "weight": len(weight_train), "weight_pairs_unique": len(pairs)},
         "dev": {"rows": len(dev), "general": len(general_dev),
-                "slack_qa": len(qa_dev), "weight": len(weight_dev)},
+                "slack_qa": len(qa_dev), "slack_multiturn": len(multiturn_dev),
+                "weight": len(weight_dev)},
         "weight_eval": {"selection": len(selection), "sealed": len(sealed)},
+        "multiturn_eval": {"selection": len(multiturn_selection),
+                           "sealed": len(multiturn_sealed)},
         "teacher_filter": {"input": len(raw_teacher), "kept": len(teacher),
                            "dropped_slack_id": len(raw_teacher) - len(teacher)},
         "weight_teacher": weight_teacher,
+        "qa_mode": args.qa_mode,
         "distribution": dict(Counter(row.get("source", row.get("meta", {}).get("task"))
                                      for row in train)),
         "general_sha256": hashlib.sha256(Path(args.general).read_bytes()).hexdigest(),
@@ -250,6 +296,13 @@ def self_check():
         '{"weights":[{"id":"F01","salience":"core"},'
         '{"id":"F02","salience":"peripheral"}]}', ["F01", "F02"])
     assert judgments and add_completion(a, judgments)["completion"]
+    pair_rows = [{**base, "split": "train", "kind": "atomic", "question": "누구인가요?",
+                  "entity": "발표자", "answer": "민지예요."},
+                 {**other, "split": "train", "kind": "atomic", "question": "무엇을 논의했나요?",
+                  "entity": "자료", "answer": "자료 색상이요."}]
+    multi = multiturn_rows(pair_rows, "train")[0]
+    assert [m["role"] for m in multi["prompt"]] == ["system", "user", "assistant", "user"]
+    assert multi["meta"]["oracle_context_ids"] == ["C2"]
     print("SELF_CHECK_OK")
 
 
@@ -261,10 +314,13 @@ def main():
     parser.add_argument("--general-count", type=int, default=20000)
     parser.add_argument("--qa-count", type=int, default=2500)
     parser.add_argument("--weight-count", type=int, default=2500)
+    parser.add_argument("--multiturn-count", type=int, default=0)
     parser.add_argument("--general-dev", type=int, default=1000)
     parser.add_argument("--qa-dev", type=int, default=250)
     parser.add_argument("--weight-dev", type=int, default=250)
+    parser.add_argument("--multiturn-dev", type=int, default=0)
     parser.add_argument("--weight-answers")
+    parser.add_argument("--qa-mode", choices=("grounded", "raft"), default="raft")
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
     if args.self_check:

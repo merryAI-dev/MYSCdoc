@@ -12,6 +12,7 @@ CID = re.compile(r"C\d+")
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 TOKEN = re.compile(r"[가-힣A-Za-z0-9]{2,}")
 INSUFFICIENT = "(근거 부족)"
+CONTENT_F1_THRESHOLD = 0.5
 
 
 def cited(answer):
@@ -20,8 +21,14 @@ def cited(answer):
 
 
 def context_ids(row):
-    user = row["prompt"][-1]["content"]
-    return set(re.findall(r"\[(C\d+)\]", user))
+    users = "\n".join(message["content"] for message in row["prompt"]
+                      if message["role"] == "user")
+    return set(re.findall(r"\[(C\d+)\]", users))
+
+
+def user_text(row):
+    return "\n".join(message["content"] for message in row["prompt"]
+                     if message["role"] == "user")
 
 
 def token_f1(expected, answer):
@@ -31,6 +38,12 @@ def token_f1(expected, answer):
         return 0.0
     precision, recall = common / sum(got.values()), common / sum(gold.values())
     return 2 * precision * recall / (precision + recall)
+
+
+def nugget_recall(expected, answer):
+    nuggets = TOKEN.findall(expected.casefold())
+    got = answer.casefold()
+    return sum(nugget in got for nugget in nuggets) / len(nuggets) if nuggets else 0.0
 
 
 def sentence_count(text):
@@ -87,8 +100,8 @@ def score_rows(rows):
         oracle_cited = bool(oracle & set(citations))
         insufficient = INSUFFICIENT in answer
         unsupported_numbers = set(NUMBER.findall(answer)) - set(meta.get("expected_numbers", []))
-        unsupported_numbers -= set(NUMBER.findall(row["prompt"][-1]["content"]))
-        answer_f1 = contrast_f1 = semantic_ok = None
+        unsupported_numbers -= set(NUMBER.findall(user_text(row)))
+        answer_f1 = answer_nugget_recall = contrast_f1 = content_ok = semantic_ok = None
         if task == "no_oracle":
             ok = insufficient and not citations
             counts["negative_n"] += 1
@@ -97,7 +110,9 @@ def score_rows(rows):
             pair[meta["pair_id"]]["negative"] = ok
         else:
             answer_f1 = token_f1(meta.get("expected_answer", ""), answer)
-            semantic_ok = True
+            answer_nugget_recall = nugget_recall(meta.get("expected_answer", ""), answer)
+            content_ok = max(answer_f1, answer_nugget_recall) >= CONTENT_F1_THRESHOLD
+            semantic_ok = content_ok
             if "weight_pair_id" in meta:
                 other = "swap" if meta["weight_variant"] == "normal" else "normal"
                 contrast = weight_gold[meta["weight_pair_id"]].get(other, "")
@@ -128,11 +143,15 @@ def score_rows(rows):
                         "insufficient": insufficient,
                         "unsupported_numbers": sorted(unsupported_numbers),
                         "token_f1": answer_f1, "contrast_token_f1": contrast_f1,
+                        "nugget_recall": answer_nugget_recall,
+                        "content_ok": content_ok,
                         "semantic_ok": semantic_ok}})
     pair_complete = [value for value in pair.values() if set(value) == {"positive", "negative"}]
     weight_complete = [value for value in weight_pair.values() if set(value) == {"normal", "swap"}]
     metrics = {
         "answer_accuracy": counts["answer_ok"] / counts["answer_n"] if counts["answer_n"] else None,
+        "automatic_grounded_content_success": (counts["answer_ok"] / counts["answer_n"]
+                                                 if counts["answer_n"] else None),
         "no_oracle_accuracy": counts["negative_ok"] / counts["negative_n"] if counts["negative_n"] else None,
         "over_refusal_rate": counts["answer_insufficient"] / counts["answer_n"] if counts["answer_n"] else None,
         "unanswerable_answer_rate": (counts["negative_answered"] / counts["negative_n"]
@@ -141,8 +160,8 @@ def score_rows(rows):
         "weight_counterfactual_accuracy": (sum(all(value.values()) for value in weight_complete)
                                              / len(weight_complete) if weight_complete else None),
         "citation_validity": counts["valid_citation_rows"] / counts["citation_rows"] if counts["citation_rows"] else None,
-        "claim_support_precision": (counts["answer_oracle_cited"] / counts["answer_citation_rows"]
-                                    if counts["answer_citation_rows"] else None),
+        "oracle_citation_hit_rate": (counts["answer_oracle_cited"] / counts["answer_citation_rows"]
+                                     if counts["answer_citation_rows"] else None),
         "raft_distractor_error_rate": (counts["raft_distractor_only"] / counts["raft_n"]
                                        if counts["raft_n"] else None),
         "mean_answer_token_f1": counts["token_f1_sum"] / counts["answer_n"] if counts["answer_n"] else None,
@@ -151,7 +170,8 @@ def score_rows(rows):
         "unsupported_number_rate": counts["unsupported_number_rows"] / max(counts["answer_n"] + counts["negative_n"], 1),
         "general_constraint_accuracy": counts["general_ok"] / counts["general_n"] if counts["general_n"] else None,
         "by_task": {task: counts[f"{task}_ok"] / counts[f"{task}_n"]
-                    for task in ("grounded", "raft", "briefing", "priority", "priority_swap")
+                    for task in ("grounded", "raft", "multiturn_grounded", "briefing",
+                                 "priority", "priority_swap")
                     if counts[f"{task}_n"]},
         "counts": dict(counts),
     }
@@ -168,6 +188,21 @@ def main():
         assert general_ok("- 하나\n- 둘", {"bullets": 2})
         assert cited("답이에요. (근거: C2, C4)") == ["C2", "C4"]
         assert token_f1("설명회를 열어요", "알타바 설명회를 열어요") > 0.7
+        assert nugget_recall("금요일", "금요일이에요.") == 1.0
+        assert context_ids({"prompt": [
+            {"role": "user", "content": "[C2] 회의는 금요일이에요."},
+            {"role": "assistant", "content": "언제인지 물어보세요."},
+            {"role": "user", "content": "그럼 언제예요?"},
+        ]}) == {"C2"}
+        base = {"prompt": [{"role": "user", "content": "[C1] 회의는 금요일이에요."}],
+                "meta": {"task": "grounded", "oracle_context_ids": ["C1"],
+                         "expected_answer": "금요일", "expected_numbers": []}}
+        metrics, details = score_rows([
+            {**base, "answer": "금요일이에요. (근거: C1)"},
+            {**base, "answer": "월요일이에요. (근거: C1)"},
+        ])
+        assert metrics["answer_accuracy"] == 0.5
+        assert details[0]["score"]["content_ok"] and not details[1]["score"]["content_ok"]
         print("SELF_CHECK_OK")
         return
     dump = json.load(open(args.answers))

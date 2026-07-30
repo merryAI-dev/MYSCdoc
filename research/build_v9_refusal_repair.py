@@ -57,7 +57,7 @@ def no_oracle(rows):
             candidates.append((overlap, digest(other, row["question"]), other))
         if not candidates:
             continue
-        noise = min(candidates)[2]
+        noise = max(candidates, key=lambda item: (item[0], item[1]))[2]
         prompt = [dict(row["prompt"][0]), {"role": "user", "content":
                   f"업무 기록:\n{user_body(noise)}\n\n질문: {row['question']}"}]
         output.append({"prompt": prompt, "completion": [{"role": "assistant", "content":
@@ -114,7 +114,12 @@ def self_check():
     other = {**row, "question": "베타는?", "meta": {"source_key": "b", "entity": "베타"},
              "prompt": [row["prompt"][0], {"role": "user", "content":
              "업무 기록:\n[C1] 베타는 5일이에요.\n\n질문: 베타는?"}]}
-    assert no_oracle([row, other])[0]["completion"][0]["content"].endswith("(근거 부족)")
+    near = {**other, "question": "알파벳은?", "meta": {"source_key": "c", "entity": "알파벳"},
+            "prompt": [row["prompt"][0], {"role": "user", "content":
+            "업무 기록:\n[C1] 베타 일정은 언제예요라고 문의했어요.\n\n질문: 알파벳은?"}]}
+    negatives = no_oracle([row, other, near])
+    assert "언제예요라고 문의" in negatives[0]["prompt"][-1]["content"]
+    assert negatives[0]["completion"][0]["content"].endswith("(근거 부족)")
     print("SELF_CHECK_OK")
 
 

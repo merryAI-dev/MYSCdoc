@@ -138,10 +138,13 @@ def read_jsonl(path):
 def validate_sample(row, where):
     prompt = row.get("prompt")
     completion = row.get("completion")
-    if not isinstance(prompt, list) or len(prompt) != 2:
-        raise PreflightError(f"{where}: prompt는 system/user 두 메시지여야 한다")
-    if [m.get("role") for m in prompt if isinstance(m, dict)] != ["system", "user"]:
-        raise PreflightError(f"{where}: prompt 역할은 system, user 순서여야 한다")
+    if not isinstance(prompt, list) or len(prompt) < 2:
+        raise PreflightError(f"{where}: prompt는 system과 하나 이상의 user 메시지가 필요하다")
+    roles = [m.get("role") for m in prompt if isinstance(m, dict)]
+    expected = ["system"] + ["user" if i % 2 == 0 else "assistant"
+                             for i in range(len(prompt) - 1)]
+    if len(roles) != len(prompt) or roles != expected or roles[-1] != "user":
+        raise PreflightError(f"{where}: prompt 역할은 system 뒤 user/assistant가 교대하고 user로 끝나야 한다")
     if not isinstance(completion, list) or len(completion) != 1:
         raise PreflightError(f"{where}: completion은 assistant 메시지 하나여야 한다")
     if not isinstance(completion[0], dict) or completion[0].get("role") != "assistant":
@@ -558,6 +561,19 @@ def self_check():
                              "target": target or
                              ("answerable" if variant == "positive" else "unanswerable")}
         return value
+
+    multi = row("후속 질문", ["이전 근거"], "후속 답변")
+    multi["prompt"] = [multi["prompt"][0],
+                       {"role": "user", "content": "첫 질문"},
+                       {"role": "assistant", "content": "첫 답변"},
+                       multi["prompt"][1]]
+    validate_sample(multi, "multi")
+    broken_multi = {**multi, "prompt": multi["prompt"][:-1]}
+    try:
+        validate_sample(broken_multi, "broken-multi")
+        raise AssertionError("assistant로 끝나는 prompt를 허용했다")
+    except PreflightError:
+        pass
 
     positive = row("무엇을 정했나?", ["관련 사실", "결정적 사실"], "결정했어요.", "p1", "positive")
     negative = row("무엇을 정했나?", ["관련 사실"], "근거가 없어요.", "p1", "negative")

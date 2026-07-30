@@ -8,6 +8,7 @@ from pathlib import Path
 
 SYSTEM = """당신은 사내 QA 응답을 비교하는 엄격한 평가자입니다.
 제공된 기록만 근거로 정확성, 질문 적합성, 자연스러운 한국어를 함께 보세요.
+여러 대화 턴이 있으면 전체 이력을 읽되 마지막 사용자 질문에 대한 응답을 평가하세요.
 기록에 답이 없으면 추측하지 않고 근거 부족이라고 한 응답이 우수합니다.
 문체 차이보다 잘못된 대상·수치·상태, 근거 없는 단정, 엉뚱한 거절을 더 크게 벌점 주세요."""
 SCHEMA = {"type": "object", "properties": {
@@ -39,6 +40,12 @@ def aggregate(first, second):
     return verdict, (sum(candidate_scores) - sum(base_scores)) / len(candidate_scores)
 
 
+def conversation_text(messages):
+    labels = {"system": "시스템", "user": "사용자", "assistant": "어시스턴트"}
+    return "\n\n".join(f"[{labels.get(message['role'], message['role'])}]\n{message['content']}"
+                        for message in messages)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model")
@@ -55,6 +62,11 @@ def main():
         b = {**a, "winner": "A", "a_grounded": 5, "b_grounded": 3,
              "a_helpful": 5, "b_helpful": 3}
         assert aggregate(a, b)[0] == "candidate"
+        assert "첫 답변" in conversation_text([
+            {"role": "user", "content": "첫 질문"},
+            {"role": "assistant", "content": "첫 답변"},
+            {"role": "user", "content": "후속 질문"},
+        ])
         print("SELF_CHECK_OK")
         return
     if not all((args.model, args.answers, args.base_label, args.candidate, args.out)):
@@ -76,7 +88,7 @@ def main():
             task = left["meta"]["task"]
             reference = ("직접 근거가 제거된 사례이므로 근거 부족이 정답" if task == "no_oracle"
                          else left["meta"].get("expected_answer", ""))
-            common = (f"평가 대상:\n{left['prompt'][-1]['content']}\n\n"
+            common = (f"평가 대상 대화:\n{conversation_text(left['prompt'])}\n\n"
                       f"참고 정답: {reference}\n")
             for candidate_is_a in (False, True):
                 answer_a = right["answer"] if candidate_is_a else left["answer"]

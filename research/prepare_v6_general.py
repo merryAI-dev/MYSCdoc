@@ -28,13 +28,16 @@ def normalized(messages, source, source_id):
     text = "\n".join(m["content"] for m in clean)
     if len(text) < 40 or len(text) > 5000 or not KOREAN.search(text) or PII.search(text) or BROKEN.search(text):
         return None
-    user_content = next(m["content"] for m in reversed(history) if m["role"] == "user")
+    history = [m for m in history if m["role"] in {"user", "assistant"}]
+    expected = ["user" if i % 2 == 0 else "assistant" for i in range(len(history))]
+    if [m["role"] for m in history] != expected or history[-1]["role"] != "user":
+        return None
+    user_content = history[-1]["content"]
     match = QUESTION.search(user_content)
     question = match.group(1).strip() if match else user_content
     if len(question) < 4 or len(answer) < 8:
         return None
-    prompt = [{"role": "system", "content": GENERAL_SYSTEM},
-              {"role": "user", "content": user_content}]
+    prompt = [{"role": "system", "content": GENERAL_SYSTEM}, *history]
     return {"prompt": prompt, "completion": [{"role": "assistant", "content": answer}],
             "source": source, "source_id": str(source_id), "question": question}
 
@@ -74,6 +77,11 @@ def main():
         nested = normalized([{"role": "user", "content": "두 문장으로 답하세요.\n\n질문: 핵심은 무엇인가요?"},
                              {"role": "assistant", "content": "핵심을 짧고 정확하게 설명해요."}], "x", 3)
         assert nested["question"] == "핵심은 무엇인가요?" and "두 문장" in nested["prompt"][1]["content"]
+        multi = normalized([{"role": "user", "content": "회의는 언제예요?"},
+                            {"role": "assistant", "content": "금요일 오후예요."},
+                            {"role": "user", "content": "장소도 알려줘요."},
+                            {"role": "assistant", "content": "회의실 A에서 열려요."}], "x", 5)
+        assert [m["role"] for m in multi["prompt"]] == ["system", "user", "assistant", "user"]
         assert normalized([{"role": "user", "content": "가" * 5001},
                            {"role": "assistant", "content": "짧은 답변입니다."}], "x", 4) is None
         assert normalized([{"role": "user", "content": "전화 010-1234-5678"},
