@@ -1,8 +1,10 @@
 package com.mysc.mydoc.service;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.util.StringUtils;
 
 /**
@@ -42,6 +44,8 @@ public final class PredicateVocabulary {
 
     /** 프롬프트에 노출할 표준 관계 목록(쉼표 구분). */
     public static final String CANONICAL_LIST = String.join(", ", CANON.keySet());
+    public static final Set<String> CANONICAL = java.util.Collections.unmodifiableSet(
+            new LinkedHashSet<>(CANON.keySet()));
 
     private PredicateVocabulary() {}
 
@@ -59,5 +63,9 @@ public final class PredicateVocabulary {
             }
         }
         return value;
+    }
+
+    public static boolean isCanonical(String predicate) {
+        return CANONICAL.contains(predicate);
     }
 }

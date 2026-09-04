@@ -104,13 +104,22 @@ public class ArchiveConfigController {
 
     public record BackfillResponse(int archived, boolean started, int examined, int documented) {}
 
-    /** 채널의 기존 논의를 시스템이 읽어와 아카이브한 뒤, 곧바로 추출 루프를 돌린다. */
+    /**
+     * 채널의 기존 논의를 아카이브한다. extract=true(기본)면 이어서 추출 루프까지 돌린다.
+     *
+     * extract=false가 필요한 이유: 수집은 LLM을 안 쓰지만 추출은 쓴다. 대량 백필 시 둘을
+     * 분리해야 수집만 먼저 끝내고 추출은 로컬 모델로 따로 돌릴 수 있다.
+     */
     @PostMapping("/api/slack/channels/{channelId}/backfill")
     BackfillResponse backfill(@PathVariable String channelId,
-                              @RequestParam(defaultValue = "100") int limit) {
+                              @RequestParam(defaultValue = "100") int limit,
+                              @RequestParam(defaultValue = "true") boolean extract) {
         // 커서 페이지네이션이 생겨 채널 전체 이력까지 거슬러 갈 수 있다(예전 상한 200).
         // 그래도 한 번에 무한정 끌어오지 않도록 상한은 둔다 — Slack rate limit·추출 비용 보호.
         int archived = backfill.backfill(channelId, Math.min(limit, 5_000));
+        if (!extract) {
+            return new BackfillResponse(archived, false, 0, 0);
+        }
         DecisionExtractionJob.SyncResult result = decisionJob.syncNow();
         if (result.examined() < 0) {
             return new BackfillResponse(archived, false, 0, 0);

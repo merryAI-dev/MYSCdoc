@@ -1,80 +1,95 @@
 package com.mysc.mydoc.service;
 
-import com.mysc.mydoc.ingest.ThreadSummaryClient;
+import com.mysc.mydoc.ai.KnowledgeAnswerClient;
+import com.mysc.mydoc.service.KnowledgeGraphService.RetrievalMode;
 import com.mysc.mydoc.service.KnowledgeGraphService.ScoredTriple;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
  * 지식그래프를 위키 삼아 답하는 RAG 챗봇. 질문을 BM25로 검색해 시드 트리플을 찾고,
  * 그 시드의 주어/목적어가 등장하는 1홉 이웃 트리플까지 함께 근거로 삼는다 — 질문과
- * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. Gemini Flash가 그 사실만
- * 근거로 매번 새로 답을 생성한다(미리 상정한 답이 아님, 비결정론적).
+ * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. 로컬 V4b 모델이 그 사실만
+ * 근거로 답하거나, 결정적 근거가 없으면 거절한다.
  */
 @Service
 public class KnowledgeChatService {
     private static final int SEED_LIMIT = 6;
-    private static final int RETRIEVE_LIMIT = 20;
+    private static final int RETRIEVE_LIMIT = 12;
 
     private static final String SYSTEM_PROMPT = """
-            당신은 사내 지식그래프를 위키처럼 참고해 답하는 어시스턴트입니다.
-            아래에 주어진 '지식그래프 사실'만 근거로 답하세요. 다음을 반드시 지키세요:
-            - 제공된 사실에 없는 내용은 지어내지 마세요. 추측하지 마세요.
-            - 사실이 질문을 충분히 커버하지 못하면 "지식그래프에 아직 그 내용이 없어요"라고 솔직히 말하세요.
-            - 답변은 한국어 해요체로, 2~5문장 이내로 간결하게.
-            - 근거가 된 사실을 자연스럽게 녹여 설명하되, 번호나 원문을 그대로 나열하지는 마세요.
+            당신은 사내 업무 기록을 바탕으로 답하는 한국어 챗봇입니다.
+            질문에 바로 답하고, 제공된 기록 밖의 회사명·인명·기관명·날짜·수치는 추측하지 마세요.
+            답할 근거가 있으면 마지막에 `(근거: C1, C2)`처럼 사용한 기록 ID를 적으세요.
+            직접 근거가 없으면 비슷한 대상을 같은 것으로 취급하지 말고 `(근거 부족)`으로 끝내세요.
+            확정, 예정, 논의, 조건부 상태를 구분해 자연스러운 해요체로 답하세요.
             """;
 
     private final KnowledgeGraphService knowledge;
-    private final ObjectProvider<ThreadSummaryClient> chat;
+    private final KnowledgeAnswerClient chat;
+    private final QueryRewriteClient rewriter;
 
-    public KnowledgeChatService(KnowledgeGraphService knowledge, ObjectProvider<ThreadSummaryClient> chat) {
+    public KnowledgeChatService(KnowledgeGraphService knowledge, KnowledgeAnswerClient chat,
+                                QueryRewriteClient rewriter) {
         this.knowledge = knowledge;
         this.chat = chat;
+        this.rewriter = rewriter;
     }
 
     public record ChatSource(String subject, String predicate, String object, String kind, UUID documentId) {}
-    public record ChatAnswer(String answer, List<ChatSource> sources) {}
+    /** rewrittenQuery: RL 재작성이 실제로 쓰였을 때만 값이 있다 — A/B 육안 비교용으로 노출. */
+    public record ChatAnswer(String answer, List<ChatSource> sources, String rewrittenQuery,
+                             RetrievalMode retrievalMode) {}
 
     public ChatAnswer answer(String question) {
+        return answer(question, false, RetrievalMode.BM25);
+    }
+
+    public ChatAnswer answer(String question, boolean rewrite) {
+        return answer(question, rewrite, RetrievalMode.BM25);
+    }
+
+    public ChatAnswer answer(String question, boolean rewrite, RetrievalMode requestedMode) {
+        RetrievalMode mode = requestedMode == null ? RetrievalMode.BM25 : requestedMode;
         if (!StringUtils.hasText(question)) {
-            return new ChatAnswer("질문을 입력해 주세요.", List.of());
+            return new ChatAnswer("질문을 입력해 주세요.", List.of(), null, mode);
         }
-        ThreadSummaryClient client = chat.getIfAvailable();
-        if (client == null) {
-            return new ChatAnswer("AI가 설정되지 않았어요 (GEMINI_API_KEY 필요).", List.of());
-        }
-        List<ScoredTriple> hits = knowledge.searchExpanded(question, SEED_LIMIT, RETRIEVE_LIMIT);
+        // RL 재작성은 '검색어'에만 쓴다 — 답변 생성 프롬프트에는 원 질문을 유지한다.
+        String rewritten = rewrite ? rewriter.rewrite(question).orElse(null) : null;
+        String searchQuery = rewritten != null ? rewritten : question;
+        List<ScoredTriple> hits = knowledge.searchContext(searchQuery, SEED_LIMIT, RETRIEVE_LIMIT, mode);
         if (hits.isEmpty()) {
-            return new ChatAnswer("지식그래프에 아직 관련된 내용이 없어요. Slack 논의가 더 쌓이면 답할 수 있어요.", List.of());
+            return new ChatAnswer("지식그래프에 아직 관련된 내용이 없어요. Slack 논의가 더 쌓이면 답할 수 있어요.",
+                    List.of(), rewritten, mode);
         }
-        String answer = client.summarize(SYSTEM_PROMPT, userPrompt(question, hits));
+        String answer = cleanAnswer(chat.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
         List<ChatSource> sources = hits.stream()
                 .map(t -> new ChatSource(t.subject(), t.predicate(), t.object(), t.kind(), t.documentId()))
                 .toList();
-        return new ChatAnswer(answer, sources);
+        return new ChatAnswer(answer, sources, rewritten, mode);
     }
 
     private String userPrompt(String question, List<ScoredTriple> hits) {
         StringBuilder facts = new StringBuilder();
         int i = 1;
         for (ScoredTriple t : hits) {
-            facts.append(i++).append(". [").append(t.kind()).append("] ")
+            // 추출 계약상 decision은 확정된 의사결정만 저장한다. 나머지는 weight를 역산하지 않고 미분류로 둔다.
+            String grade = "decision".equals(t.kind()) ? "확정" : "미분류";
+            facts.append("[C").append(i++).append("] [상태=").append(grade).append("] [")
+                    .append(t.kind()).append("] ")
                     .append(t.subject()).append(" — ").append(t.predicate()).append(" — ").append(t.object());
             if (StringUtils.hasText(t.statement())) {
                 facts.append("  (").append(t.statement()).append(")");
             }
             facts.append("\n");
         }
-        return """
-                질문: %s
+        return "업무 기록:\n%s\n\n질문: %s".formatted(facts.toString().strip(), question);
+    }
 
-                지식그래프 사실:
-                %s
-                위 사실만 근거로 질문에 답하세요.
-                """.formatted(question, facts);
+    private String cleanAnswer(String answer) {
+        return answer.replace("<answer>", "").replace("</answer>", "")
+                .replace("<abstain>", "").replace("</abstain>", "").strip();
     }
 }

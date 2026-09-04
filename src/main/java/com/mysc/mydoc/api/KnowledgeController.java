@@ -9,6 +9,7 @@ import com.mysc.mydoc.service.KnowledgeChatService;
 import com.mysc.mydoc.service.KnowledgeChatService.ChatAnswer;
 import com.mysc.mydoc.service.KnowledgeGraphService;
 import com.mysc.mydoc.service.KnowledgeGraphService.Graph;
+import com.mysc.mydoc.service.KnowledgeGraphService.RetrievalMode;
 import com.mysc.mydoc.service.KnowledgeGraphService.ScoredTriple;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,29 +34,31 @@ public class KnowledgeController {
     }
 
     public record TripleListResponse(List<ScoredTriple> triples) {}
-    public record ChatRequest(String question) {}
+    public record ChatRequest(String question, boolean rewrite, RetrievalMode retrievalMode) {}
     public record PredictionListResponse(List<Prediction> predictions) {}
 
     @GetMapping("/api/knowledge/triples")
     TripleListResponse triples(
             @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "20") int limit
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "false") boolean weighted
     ) {
-        return new TripleListResponse(knowledge.search(q, limit));
+        return new TripleListResponse(knowledge.search(q, limit, weighted));
     }
 
     @GetMapping("/api/knowledge/graph")
     Graph graph(
             @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "60") int limit
+            @RequestParam(defaultValue = "60") int limit,
+            @RequestParam(defaultValue = "false") boolean weighted
     ) {
-        return knowledge.graph(q, limit);
+        return knowledge.graph(q, limit, weighted);
     }
 
-    /** 지식그래프를 위키 삼아 답하는 RAG 챗봇 (Gemini Flash). */
+    /** 지식그래프를 위키 삼아 답하는 로컬 V4b RAG 챗봇. */
     @PostMapping("/api/knowledge/chat")
     ChatAnswer chat(@RequestBody ChatRequest request) {
-        return chat.answer(request.question());
+        return chat.answer(request.question(), request.rewrite(), request.retrievalMode());
     }
 
     /**

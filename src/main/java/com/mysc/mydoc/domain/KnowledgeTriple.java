@@ -25,6 +25,8 @@ public class KnowledgeTriple {
     @Column(nullable = false) private String threadTs;
     // 사건 시각(회의일·메시지 시각) — 소속 문서의 event_at을 복사. 시간축 그래프 필터의 기준. null 가능.
     private Instant eventAt;
+    /** 의미 가중치(32B 판정 유래, 0~1). null=미판정 — 랭킹에서 중립 0.7로 취급. */
+    private Double weight;
     @Column(nullable = false) private Instant createdAt;
 
     protected KnowledgeTriple() {}
@@ -62,5 +64,6 @@ public class KnowledgeTriple {
     public String getChannelId() { return channelId; }
     public String getThreadTs() { return threadTs; }
     public Instant getEventAt() { return eventAt; }
+    public Double getWeight() { return weight; }
     public Instant getCreatedAt() { return createdAt; }
 }

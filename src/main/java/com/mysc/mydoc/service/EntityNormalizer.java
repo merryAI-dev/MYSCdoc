@@ -56,6 +56,8 @@ public class EntityNormalizer {
             Map.entry("주식회사 엠와이소셜컴퍼니", "MYSC"),
             Map.entry("mysc", "MYSC"),
             Map.entry("엠와이씨소셜컴퍼니", "MYSC"),
+            Map.entry("koica", "KOICA"),
+            Map.entry("코이카", "KOICA"),
             Map.entry("팀 전체", "팀"),
             Map.entry("우리 팀", "팀"),
             Map.entry("전체 팀", "팀")

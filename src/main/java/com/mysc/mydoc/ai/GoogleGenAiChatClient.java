@@ -1,5 +1,6 @@
 package com.mysc.mydoc.ai;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.mysc.mydoc.ingest.ThreadSummaryClient;
 import java.time.Duration;
 import java.util.List;
@@ -7,12 +8,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.web.client.ClientHttpRequestFactories;
 import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @Component
+@Primary
 @ConditionalOnExpression("'${mydoc.gemini.api-key:}' != ''")
-public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryClient {
+public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryClient, KnowledgeAnswerClient {
     // The detected HTTP client (OkHttp via the Slack SDK) defaults to a 10s read timeout,
     // which a Gemini generateContent call routinely exceeds. Set explicit timeouts.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -54,12 +57,36 @@ public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryCli
     }
 
     @Override
+    public String answer(String systemPrompt, String userPrompt) {
+        return review(systemPrompt, userPrompt);
+    }
+
+    @Override
     public String summarize(String systemPrompt, String userPrompt) {
         return review(systemPrompt, userPrompt);
     }
 
+    @Override
+    public String summarizeStructured(String systemPrompt, String userPrompt, JsonNode responseSchema) {
+        StructuredGenerateContentRequest request = new StructuredGenerateContentRequest(
+                new Content(List.of(new Part(systemPrompt))),
+                List.of(new ContentEntry("user", List.of(new Part(userPrompt)))),
+                new StructuredGenerationConfig(new ThinkingConfig(0), "application/json", responseSchema)
+        );
+        GenerateContentResponse response = GeminiRetry.call("generateContent", () -> restClient.post()
+                .uri("/models/{model}:generateContent", model)
+                .body(request)
+                .retrieve()
+                .body(GenerateContentResponse.class));
+        return response.candidates().get(0).content().parts().get(0).text();
+    }
+
     private record GenerateContentRequest(Content systemInstruction, List<ContentEntry> contents, GenerationConfig generationConfig) {}
+    private record StructuredGenerateContentRequest(Content systemInstruction, List<ContentEntry> contents,
+                                                    StructuredGenerationConfig generationConfig) {}
     private record GenerationConfig(ThinkingConfig thinkingConfig) {}
+    private record StructuredGenerationConfig(ThinkingConfig thinkingConfig, String responseMimeType,
+                                              JsonNode responseSchema) {}
     private record ThinkingConfig(int thinkingBudget) {}
     private record ContentEntry(String role, List<Part> parts) {}
     private record Content(List<Part> parts) {}

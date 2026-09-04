@@ -45,13 +45,16 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
 
     private final ObjectProvider<com.mysc.mydoc.ingest.ThreadSummaryClient> client;
     private final ObjectMapper objectMapper;
+    private final ExtractionTraceRecorder trace;
 
     public JsonDecisionExtractPort(
             ObjectProvider<com.mysc.mydoc.ingest.ThreadSummaryClient> client,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ExtractionTraceRecorder trace
     ) {
         this.client = client;
         this.objectMapper = objectMapper;
+        this.trace = trace;
     }
 
     @Override
@@ -61,11 +64,20 @@ public class JsonDecisionExtractPort implements DecisionExtractPort {
             throw new ValidationException("thread summary client is not configured");
         }
         String userPrompt = userPrompt(messages);
+        // SlackMessage에는 채널 정보가 없다 — 스레드 루트 ts만으로도 원문·문서와 조인된다.
+        String threadTs = messages.isEmpty() ? null : messages.get(0).ts();
         RuntimeException lastFailure = null;
         for (int attempt = 0; attempt < MAX_JSON_PARSE_ATTEMPTS; attempt++) {
+            String raw = null;
             try {
-                return parse(summaryClient.summarize(SYSTEM_PROMPT, userPrompt));
+                raw = summaryClient.summarize(SYSTEM_PROMPT, userPrompt);
+                Optional<DecisionExtract> parsed = parse(raw);
+                trace.record("slack", null, threadTs, SYSTEM_PROMPT, userPrompt, raw, true, null);
+                return parsed;
             } catch (RuntimeException exception) {
+                // 실패 건도 남긴다 — 어떤 입력에서 형식이 깨지는지가 곧 개선 재료다.
+                trace.record("slack", null, threadTs, SYSTEM_PROMPT, userPrompt, raw,
+                        false, exception.getMessage());
                 lastFailure = exception;
             }
         }

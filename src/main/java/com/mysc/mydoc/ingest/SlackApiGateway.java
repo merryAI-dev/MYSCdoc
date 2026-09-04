@@ -17,6 +17,9 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
     /** conversations.history 한 페이지 크기 — Slack 권장 상한. 그 이상은 커서로 이어 받는다. */
     private static final int SLACK_PAGE_SIZE = 200;
 
+    /** Slack rate limit(429) 재시도 — 대량 백필 시 conversations.replies가 한도에 걸린다. */
+    private static final int RATE_LIMIT_RETRIES = 5;
+
     private final MethodsClient slack;
 
     // 생성자가 2개(테스트용 포함)라 Spring이 고를 수 있게 명시한다. 실토큰으로 기동해야만 드러나는 지점.
@@ -124,13 +127,13 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
             do {
                 final String pageCursor = cursor;
                 final int pageSize = Math.min(SLACK_PAGE_SIZE, limit - fetchedParents);
-                var history = slack.conversationsHistory(request -> {
+                var history = withRateLimitRetry(() -> slack.conversationsHistory(request -> {
                     request.channel(channelId).limit(pageSize);
                     if (pageCursor != null) {
                         request.cursor(pageCursor);
                     }
                     return request;
-                });
+                }));
                 if (!history.isOk()) {
                     throw new IllegalStateException("conversations.history failed: " + history.getError());
                 }
@@ -140,7 +143,8 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
                     addIfArchivable(archivable, parent, parent.getTs());
                     // 답글이 있는 스레드는 펼쳐서 답글까지 아카이브한다.
                     if (parent.getReplyCount() != null && parent.getReplyCount() > 0) {
-                        var replies = slack.conversationsReplies(request -> request.channel(channelId).ts(parent.getTs()));
+                        var replies = withRateLimitRetry(
+                                () -> slack.conversationsReplies(request -> request.channel(channelId).ts(parent.getTs())));
                         if (replies.isOk()) {
                             for (Message reply : nonNull(replies.getMessages())) {
                                 if (!reply.getTs().equals(parent.getTs())) { // 루트는 위에서 이미 넣음
@@ -160,6 +164,35 @@ public class SlackApiGateway implements SlackGateway, SlackDmPort {
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    /**
+     * 429(ratelimited)를 만나면 지수 백오프로 재시도한다. 실측: 채널 하나에서 840건을
+     * 끌어오며 스레드마다 replies를 호출하자 곧바로 한도에 걸렸다. 백필은 오래 걸려도
+     * 되는 작업이므로 실패시키기보다 기다리는 편이 맞다.
+     */
+    private <T> T withRateLimitRetry(SlackCall<T> call) throws Exception {
+        Exception last = null;
+        for (int attempt = 0; attempt < RATE_LIMIT_RETRIES; attempt++) {
+            try {
+                return call.execute();
+            } catch (com.slack.api.methods.SlackApiException failure) {
+                if (failure.getResponse().code() != 429) {
+                    throw failure;
+                }
+                last = failure;
+                // Retry-After 헤더가 있으면 그 값을, 없으면 지수 백오프.
+                String retryAfter = failure.getResponse().header("Retry-After");
+                long waitSeconds = retryAfter != null ? Long.parseLong(retryAfter) : (long) Math.pow(2, attempt + 1);
+                Thread.sleep(Math.min(waitSeconds, 60) * 1000L);
+            }
+        }
+        throw new IllegalStateException("Slack rate limit 재시도 소진", last);
+    }
+
+    @FunctionalInterface
+    private interface SlackCall<T> {
+        T execute() throws Exception;
     }
 
     // 봇/시스템 메시지(subtype 있음)와 빈 본문은 아카이브에서 제외한다.

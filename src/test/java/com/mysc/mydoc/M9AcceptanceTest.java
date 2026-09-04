@@ -3,8 +3,12 @@ package com.mysc.mydoc;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mysc.mydoc.ingest.ThreadSummaryClient;
+import com.mysc.mydoc.ingest.SlackMessage;
+import com.mysc.mydoc.ingest.archive.DecisionExtract;
 import com.mysc.mydoc.ingest.archive.DecisionExtractionJob;
+import com.mysc.mydoc.ingest.archive.OntologyDecisionExtractPort;
 import com.mysc.mydoc.ingest.archive.SlackArchiveService;
+import com.mysc.mydoc.service.KnowledgeTripleWriter;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -12,6 +16,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +78,12 @@ class M9AcceptanceTest {
 
     @Autowired
     DecisionExtractionJob job;
+
+    @Autowired
+    OntologyDecisionExtractPort ontology;
+
+    @Autowired
+    KnowledgeTripleWriter tripleWriter;
 
     @Autowired
     FakeThreadSummaryClient llm;
@@ -205,6 +216,151 @@ class M9AcceptanceTest {
         assertThat(count("SELECT COUNT(*) FROM knowledge_triple WHERE document_id = '" + documentId + "'")).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT kind FROM knowledge_triple WHERE document_id = ?", String.class, documentId)).isEqualTo("gotcha");
+    }
+
+    @Test
+    void ontologyExtractionLinksExistingEntityAndKeepsThreadEvidence() {
+        UUID existingDocument = seedDocument("기존 KOICA 지식");
+        insertTriple(existingDocument, "fact", "KOICA는 기존 사업을 운영해요.",
+                "KOICA", "운영한다", "기존 사업");
+        UUID targetDocument = seedDocument("온톨로지 추출 대상");
+        String root = "1751800900.000100";
+        String reply = "1751800901.000100";
+
+        llm.enqueue("""
+                {"title":"KOICA 민관협력 예산","summary":["KOICA의 민관협력 예산 집중이 공유됐어요."],
+                 "entities":[
+                   {"id":"E1","name":"코이카","type":"Organization","aliases":["KOICA"],"mentionTs":["1751800900.000100"]},
+                   {"id":"E2","name":"민관협력 분야 예산","type":"Concept","aliases":[],"mentionTs":["1751800901.000100"]},
+                   {"id":"E3","name":"긴 플랫폼 설명","type":"Concept","aliases":[],"mentionTs":["1751800901.000100"]}
+                 ],
+                 "assertions":[{"subjectId":"E1","predicate":"목표로 한다","objectId":"E2","literal":"민관협력 분야 예산",
+                   "evidenceTs":["1751800900.000100","1751800901.000100"],
+                   "statement":"KOICA는 민관협력 분야 예산에 집중해요."},
+                   {"subjectId":"E1","predicate":"속성이다","objectId":"null","literal":"2025년",
+                    "evidenceTs":["1751800900.000100"],"statement":"기준 연도는 2025년이에요."},
+                   {"subjectId":"E1","predicate":"포함한다","objectId":"E3","literal":"",
+                    "evidenceTs":["1751800901.000100"],"statement":"긴 설명은 제거돼야 해요."}]}
+                """);
+        llm.enqueue("""
+                {"title":"KOICA 민관협력 예산","summary":["KOICA의 민관협력 예산 집중이 공유됐어요."],
+                 "entities":[
+                   {"id":"E1","canonicalName":"KOICA","type":"Organization","action":"link"},
+                   {"id":"E2","canonicalName":"민관협력 분야 예산","type":"Concept","action":"create"},
+                   {"id":"E3","canonicalName":"실주행 고해상도 배터리 데이터를 기반으로 전주기관리 체계를 구축하는 매우 긴 AI 플랫폼 설명","type":"Concept","action":"create"}
+                 ],
+                 "assertions":[{"subjectId":"E1","predicate":"목표로 한다","objectId":"E2","literal":"민관협력 분야 예산",
+                   "evidenceTs":["1751800900.000100","1751800901.000100"],
+                   "statement":"KOICA는 민관협력 분야 예산에 집중해요."},
+                   {"subjectId":"E1","predicate":"속성이다","objectId":"null","literal":"2025년",
+                    "evidenceTs":["1751800900.000100"],"statement":"기준 연도는 2025년이에요."},
+                   {"subjectId":"E1","predicate":"포함한다","objectId":"E3","literal":"",
+                    "evidenceTs":["1751800901.000100"],"statement":"긴 설명은 제거돼야 해요."}]}
+                """);
+
+        Optional<DecisionExtract> result = ontology.extract(List.of(
+                new SlackMessage("U1", "담당자", "코이카 관련 내용을 정리해요.", root),
+                new SlackMessage("U2", "팀원", "민관협력 분야 예산에 집중하고 있어요.", reply)
+        ));
+        assertThat(result).isPresent();
+        tripleWriter.replace(targetDocument, result.orElseThrow(), "C_M9O", root);
+
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT subject, predicate, object, statement FROM knowledge_triple WHERE document_id = ? AND predicate = '목표로 한다'",
+                targetDocument))
+                .containsEntry("subject", "KOICA")
+                .containsEntry("predicate", "목표로 한다")
+                .containsEntry("object", "민관협력 분야 예산");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT statement FROM knowledge_triple WHERE document_id = ? AND predicate = '목표로 한다'",
+                String.class, targetDocument))
+                .contains(root).contains(reply);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM knowledge_triple WHERE document_id = ?", Integer.class, targetDocument))
+                .isEqualTo(2);
+        assertThat(llm.userPrompts.get(0)).contains(root).contains(reply);
+        assertThat(llm.userPrompts.get(1)).contains("\"E1\":[\"KOICA\"]");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM extraction_trace WHERE thread_ts = ?", Integer.class, root))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void ontologyExtractionRejectsUnknownEvidenceTimestamp() {
+        llm.enqueue("""
+                {"title":"잘못된 근거","summary":["잘못된 근거예요."],
+                 "entities":[{"id":"E1","name":"KOICA","type":"Organization","aliases":[],
+                              "mentionTs":["없는-ts"]}],
+                 "assertions":[]}
+                """);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ontology.extract(List.of(
+                new SlackMessage("U1", "담당자", "KOICA를 검토해요.", "1751800910.000100")
+        ))).hasMessageContaining("ontology entity is invalid");
+        assertThat(llm.calls).isEqualTo(1);
+    }
+
+    @Test
+    void ontologyExtractionRejectsEntityTypeDrift() {
+        llm.enqueue("""
+                {"title":"KOICA","summary":["KOICA 정보예요."],
+                 "entities":[{"id":"E1","name":"KOICA","type":"Organization","aliases":[],
+                              "mentionTs":["1751800920.000100"]}],
+                 "assertions":[]}
+                """);
+        llm.enqueue("""
+                {"title":"KOICA","summary":["KOICA 정보예요."],
+                 "entities":[{"id":"E1","canonicalName":"KOICA","type":"Person","action":"create"}],
+                 "assertions":[]}
+                """);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ontology.extract(List.of(
+                new SlackMessage("U1", "담당자", "KOICA를 검토해요.", "1751800920.000100")
+        ))).hasMessageContaining("linked ontology entity is invalid");
+    }
+
+    @Test
+    void ontologyExtractionDropsInternalIdsSelfLoopsAndDuplicates() {
+        llm.enqueue("""
+                {"title":"정제","summary":["정제 테스트예요."],
+                 "entities":[
+                   {"id":"E1","name":"MYSC","type":"Organization","aliases":[],"mentionTs":["1751800930.000100"]},
+                   {"id":"E2","name":"U09ABCDEFG","type":"Person","aliases":[],"mentionTs":["1751800930.000100"]},
+                   {"id":"E3","name":"직원 1","type":"Person","aliases":[],"mentionTs":["1751800930.000100"]}
+                 ],
+                 "assertions":[
+                   {"subjectId":"E1","predicate":"목표로 한다","objectId":"","literal":"성장","evidenceTs":["1751800930.000100"],"statement":"성장을 목표로 해요."},
+                   {"subjectId":"E1","predicate":"목표로 한다","objectId":"","literal":"성장","evidenceTs":["1751800930.000100"],"statement":"성장을 목표로 해요."},
+                   {"subjectId":"E1","predicate":"포함한다","objectId":"E1","literal":"","evidenceTs":["1751800930.000100"],"statement":"self loop예요."},
+                   {"subjectId":"E1","predicate":"담당한다","objectId":"E2","literal":"","evidenceTs":["1751800930.000100"],"statement":"ID예요."},
+                   {"subjectId":"E1","predicate":"담당한다","objectId":"E3","literal":"","evidenceTs":["1751800930.000100"],"statement":"임시 직원이에요."},
+                   {"subjectId":"E1","predicate":"담당한다","objectId":"","literal":"직원 4","evidenceTs":["1751800930.000100"],"statement":"임시 직원 literal이에요."}
+                 ]}
+                """);
+        llm.enqueue("""
+                {"title":"정제","summary":["정제 테스트예요."],
+                 "entities":[
+                   {"id":"E1","canonicalName":"MYSC","type":"Organization","action":"create"},
+                   {"id":"E2","canonicalName":"U09ABCDEFG","type":"Person","action":"create"},
+                   {"id":"E3","canonicalName":"직원 1","type":"Person","action":"create"}
+                 ],
+                 "assertions":[
+                   {"subjectId":"E1","predicate":"목표로 한다","objectId":"","literal":"성장","evidenceTs":["1751800930.000100"],"statement":"성장을 목표로 해요."},
+                   {"subjectId":"E1","predicate":"목표로 한다","objectId":"","literal":"성장","evidenceTs":["1751800930.000100"],"statement":"성장을 목표로 해요."},
+                   {"subjectId":"E1","predicate":"포함한다","objectId":"E1","literal":"","evidenceTs":["1751800930.000100"],"statement":"self loop예요."},
+                   {"subjectId":"E1","predicate":"담당한다","objectId":"E2","literal":"","evidenceTs":["1751800930.000100"],"statement":"ID예요."},
+                   {"subjectId":"E1","predicate":"담당한다","objectId":"E3","literal":"","evidenceTs":["1751800930.000100"],"statement":"임시 직원이에요."},
+                   {"subjectId":"E1","predicate":"담당한다","objectId":"","literal":"직원 4","evidenceTs":["1751800930.000100"],"statement":"임시 직원 literal이에요."}
+                 ]}
+                """);
+
+        DecisionExtract result = ontology.extract(List.of(
+                new SlackMessage("U1", "담당자", "성장을 목표로 해요.", "1751800930.000100")
+        )).orElseThrow();
+
+        assertThat(result.tacitKnowledge()).hasSize(1);
+        assertThat(result.tacitKnowledge().get(0).triples())
+                .containsExactly(new DecisionExtract.Triple("MYSC", "목표로 한다", "성장"));
     }
 
     @Test
@@ -416,10 +572,12 @@ class M9AcceptanceTest {
 
     static class FakeThreadSummaryClient implements ThreadSummaryClient {
         final Deque<String> responses = new ArrayDeque<>();
+        final java.util.ArrayList<String> userPrompts = new java.util.ArrayList<>();
         int calls;
 
         void reset() {
             responses.clear();
+            userPrompts.clear();
             calls = 0;
         }
 
@@ -430,6 +588,7 @@ class M9AcceptanceTest {
         @Override
         public String summarize(String systemPrompt, String userPrompt) {
             calls++;
+            userPrompts.add(userPrompt);
             if (responses.isEmpty()) {
                 throw new IllegalStateException("unexpected LLM call");
             }

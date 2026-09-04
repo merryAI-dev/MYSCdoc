@@ -197,3 +197,10 @@ GPU당 약 58GB를 사용했고 OOM·NaN·절단은 없었다. 42+137+90건의 �
 vLLM 초기화를 포함해 약 6분, 32B TP=2 reversed A/B 640판정은 약 80초가 걸렸다.
 처음 평가는 가상환경의 `ninja`가 PATH에 없어 warmup에서 중단됐으며, 새 패키지 설치 없이
 환경의 `bin`을 PATH에 추가해 재실행했다. 외부 API 비용은 0원이다.
+
+## 13. Gemini 온톨로지 추출 A/B (2026-07-31)
+
+고정 Slack 스레드 30건의 최종 A/B는 legacy 1회와 ontology 2회 호출로 총 90회였고
+벽시계는 24분 10초였다. 초기 구조 오류 진단과 3건 스모크 재실행은 별도이며, 최종 결과는
+`research/runs/ontology-a-b-30.jsonl`에 로컬 보관했다. API 재호출 없이 확정적 오염
+필터를 재생해 603개 중 157개가 ID·임시 직원·self-loop·exact duplicate임을 확인했다.

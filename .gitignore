@@ -21,6 +21,8 @@ research/runs/
 research/corpus/
 # 변환 모델 (수 GB)
 research/mlx/
+# GPU 서버 종료 전 로컬 백업 (모델·사내 원문 포함)
+research/server-backup-*/
 # RL 데이터셋 (질문에 사내 맥락 포함)
 research/rl/
 research/*.jsonl
@@ -32,3 +34,4 @@ research/chat_holdout_questions.json
 research/time_split.json
 # 프롬프트 원본은 Java 소스에 있다
 research/prompts*.json
+.gstack/
