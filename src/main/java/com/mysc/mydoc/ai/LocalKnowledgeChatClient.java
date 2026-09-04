@@ -10,12 +10,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
 
 /** MYSCdoc 지식그래프 챗 전용 로컬 MLX 클라이언트. */
 @Component
+@ConditionalOnExpression("'${mydoc.local-chat.enabled:false}' == 'true'")
 public class LocalKnowledgeChatClient implements KnowledgeAnswerClient {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(120);

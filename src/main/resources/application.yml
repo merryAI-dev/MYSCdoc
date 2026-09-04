@@ -46,6 +46,7 @@ mydoc:
     google-application-credentials: ${GOOGLE_APPLICATION_CREDENTIALS:}
   document-base-url: ${MYDOC_BASE_URL:http://localhost:8080}
   local-chat:
+    enabled: ${MYDOC_LOCAL_CHAT_ENABLED:false}
     base-url: ${MYDOC_LOCAL_CHAT_BASE_URL:http://127.0.0.1:8091}
     model: ${MYDOC_LOCAL_CHAT_MODEL:/Users/boram/mydoc/research/mlx/h10c-s43-merged}
   gemini:
