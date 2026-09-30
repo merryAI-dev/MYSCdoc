@@ -47,6 +47,32 @@ class KnowledgeChatServiceTest {
     }
 
     @Test
+    void answer_marksIndirectEvidenceWithItsPath() {
+        KnowledgeGraphService knowledge = mock();
+        KnowledgeAnswerClient client = mock();
+        QueryRewriteClient rewriter = mock();
+        UUID seedId = UUID.randomUUID();
+        ScoredTriple seed = new ScoredTriple(seedId, UUID.randomUUID(), "decision", "선정됐어요",
+                "오션랩", "선정되었다", "해양수산 데모데이", Instant.now(), null, 1.0, 0, null);
+        ScoredTriple neighbor = new ScoredTriple(UUID.randomUUID(), UUID.randomUUID(), "convention",
+                "시드투자를 검토해요", "해양수산 데모데이", "후속지원", "시드투자 검토",
+                Instant.now(), null, 0.2, 1, seedId);
+        when(knowledge.searchContext("오션랩 후속지원", 6, 12, RetrievalMode.MULTIHOP))
+                .thenReturn(List.of(seed, neighbor));
+        when(client.answer(anyString(), anyString())).thenReturn("시드투자를 검토해요. (근거: C1→C2)");
+
+        KnowledgeChatService service = new KnowledgeChatService(knowledge, client, rewriter);
+        KnowledgeChatService.ChatAnswer result = service.answer("오션랩 후속지원", false, RetrievalMode.MULTIHOP);
+
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        verify(client).answer(anyString(), user.capture());
+        assertThat(user.getValue())
+                .contains("[C1] [상태=확정] [decision]")
+                .contains("[C2] [상태=미분류] [경로=C1→] [convention]");
+        assertThat(result.sources()).extracting(KnowledgeChatService.ChatSource::hop).containsExactly(0, 1);
+    }
+
+    @Test
     void answer_usesRequestedGraphRetrievalMode() {
         KnowledgeGraphService knowledge = mock();
         KnowledgeAnswerClient client = mock();

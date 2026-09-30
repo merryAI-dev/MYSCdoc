@@ -142,6 +142,10 @@
              title="엔티티를 먼저 찾고 직접 연결된 관계만 검색합니다. 끄면 기존 BM25+1홉입니다.">
         <input id="chatGraph" type="checkbox"> 그래프 검색
       </label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;align-self:center"
+             title="시드에서 개체를 따라 2홉까지 넓히고, 간접 근거가 어느 기록을 거쳤는지 답변에 밝힙니다. 켜면 그래프 검색보다 우선합니다.">
+        <input id="chatMultiHop" type="checkbox"> 멀티홉
+      </label>
       <textarea id="chatInput" rows="1" placeholder="지식그래프에 대해 물어보세요…"></textarea>
       <button id="chatSend">보내기</button>
     </div>
@@ -479,12 +483,14 @@ async function sendChat() {
     const res = await api('/api/knowledge/chat', { method: 'POST', body: JSON.stringify(
         { question: q,
           rewrite: document.getElementById('chatRewrite').checked,
-          retrievalMode: document.getElementById('chatGraph').checked ? 'GRAPH' : 'BM25' }) })
+          retrievalMode: document.getElementById('chatMultiHop').checked ? 'MULTIHOP'
+              : document.getElementById('chatGraph').checked ? 'GRAPH' : 'BM25' }) })
     if (!res.ok) throw new Error()
     const r = await res.json()
     thinking.classList.remove('thinking')
     thinking.querySelector('div:last-child').textContent = r.answer
-    thinking.querySelector('.who').textContent = '지식그래프 · ' + (r.retrievalMode === 'GRAPH' ? 'Graph' : 'BM25')
+    thinking.querySelector('.who').textContent = '지식그래프 · '
+        + ({ GRAPH: 'Graph', MULTIHOP: 'Multi-hop' }[r.retrievalMode] || 'BM25')
     if (r.rewrittenQuery) {
       // A/B 육안 비교용 — RL이 실제로 어떤 검색어로 찾았는지 그대로 보여준다
       const rq = document.createElement('div')
@@ -500,7 +506,9 @@ async function sendChat() {
         const label = s.subject + ' — ' + s.predicate + ' — ' + s.object
         if (seen.has(label)) continue
         seen.add(label)
-        const chip = document.createElement('span'); chip.className = 'src'; chip.textContent = label
+        // 간접 근거는 몇 홉 건너 닿았는지 앞에 표시한다
+        const chip = document.createElement('span'); chip.className = 'src'
+        chip.textContent = (s.hop > 0 ? s.hop + '홉 · ' : '') + label
         box.appendChild(chip)
         if (seen.size >= 6) break
       }
