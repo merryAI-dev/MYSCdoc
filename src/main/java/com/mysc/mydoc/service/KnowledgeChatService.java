@@ -3,15 +3,19 @@ package com.mysc.mydoc.service;
 import com.mysc.mydoc.ai.KnowledgeAnswerClient;
 import com.mysc.mydoc.service.KnowledgeGraphService.RetrievalMode;
 import com.mysc.mydoc.service.KnowledgeGraphService.ScoredTriple;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
  * 지식그래프를 위키 삼아 답하는 RAG 챗봇. 질문을 BM25로 검색해 시드 트리플을 찾고,
  * 그 시드의 주어/목적어가 등장하는 1홉 이웃 트리플까지 함께 근거로 삼는다 — 질문과
- * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. 로컬 V4b 모델이 그 사실만
+ * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. MULTIHOP 모드는 개체를 따라
+ * 여러 홉을 넓히고, 간접 근거마다 경유한 기록을 프롬프트에 밝힌다. 모델은 그 사실만
  * 근거로 답하거나, 결정적 근거가 없으면 거절한다.
  */
 @Service
@@ -25,20 +29,25 @@ public class KnowledgeChatService {
             답할 근거가 있으면 마지막에 `(근거: C1, C2)`처럼 사용한 기록 ID를 적으세요.
             직접 근거가 없으면 비슷한 대상을 같은 것으로 취급하지 말고 `(근거 부족)`으로 끝내세요.
             확정, 예정, 논의, 조건부 상태를 구분해 자연스러운 해요체로 답하세요.
+            `[경로=C2→]`가 붙은 기록은 앞 기록을 거쳐 연결된 간접 근거입니다. 여러 기록을 이어 답했다면
+            `(근거: C2→C5)`처럼 연결 순서대로 적고, 간접 근거만으로 단정하지 마세요.
             """;
 
     private final KnowledgeGraphService knowledge;
-    private final KnowledgeAnswerClient chat;
+    // Gemini 키도 로컬 챗도 없으면 빈이 없다 — 다른 AI 클라이언트처럼 선택 의존으로 받아 앱 기동은 막지 않는다.
+    private final ObjectProvider<KnowledgeAnswerClient> chat;
     private final QueryRewriteClient rewriter;
 
-    public KnowledgeChatService(KnowledgeGraphService knowledge, KnowledgeAnswerClient chat,
+    public KnowledgeChatService(KnowledgeGraphService knowledge, ObjectProvider<KnowledgeAnswerClient> chat,
                                 QueryRewriteClient rewriter) {
         this.knowledge = knowledge;
         this.chat = chat;
         this.rewriter = rewriter;
     }
 
-    public record ChatSource(String subject, String predicate, String object, String kind, UUID documentId) {}
+    /** hop: 시드=0, 멀티홉 검색에서 개체를 건너 닿은 근거는 1 이상. */
+    public record ChatSource(String subject, String predicate, String object, String kind, UUID documentId,
+                             int hop) {}
     /** rewrittenQuery: RL 재작성이 실제로 쓰였을 때만 값이 있다 — A/B 육안 비교용으로 노출. */
     public record ChatAnswer(String answer, List<ChatSource> sources, String rewrittenQuery,
                              RetrievalMode retrievalMode) {}
@@ -64,21 +73,34 @@ public class KnowledgeChatService {
             return new ChatAnswer("지식그래프에 아직 관련된 내용이 없어요. Slack 논의가 더 쌓이면 답할 수 있어요.",
                     List.of(), rewritten, mode);
         }
-        String answer = cleanAnswer(chat.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
+        KnowledgeAnswerClient client = chat.getIfAvailable();
+        if (client == null) {
+            return new ChatAnswer("답변 모델이 설정되지 않았어요. Gemini API 키나 로컬 챗 설정을 확인해 주세요.",
+                    List.of(), rewritten, mode);
+        }
+        String answer = cleanAnswer(client.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
         List<ChatSource> sources = hits.stream()
-                .map(t -> new ChatSource(t.subject(), t.predicate(), t.object(), t.kind(), t.documentId()))
+                .map(t -> new ChatSource(t.subject(), t.predicate(), t.object(), t.kind(), t.documentId(),
+                        t.hop()))
                 .toList();
         return new ChatAnswer(answer, sources, rewritten, mode);
     }
 
     private String userPrompt(String question, List<ScoredTriple> hits) {
         StringBuilder facts = new StringBuilder();
+        Map<UUID, Integer> labels = new HashMap<>();
         int i = 1;
         for (ScoredTriple t : hits) {
+            labels.put(t.id(), i);
             // 추출 계약상 decision은 확정된 의사결정만 저장한다. 나머지는 weight를 역산하지 않고 미분류로 둔다.
             String grade = "decision".equals(t.kind()) ? "확정" : "미분류";
-            facts.append("[C").append(i++).append("] [상태=").append(grade).append("] [")
-                    .append(t.kind()).append("] ")
+            facts.append("[C").append(i++).append("] [상태=").append(grade).append("] ");
+            // 멀티홉 이웃은 경유한 기록 번호를 밝힌다 — via는 BFS 순서상 항상 앞서 번호가 매겨져 있다.
+            Integer via = t.via() == null ? null : labels.get(t.via());
+            if (via != null) {
+                facts.append("[경로=C").append(via).append("→] ");
+            }
+            facts.append("[").append(t.kind()).append("] ")
                     .append(t.subject()).append(" — ").append(t.predicate()).append(" — ").append(t.object());
             if (StringUtils.hasText(t.statement())) {
                 facts.append("  (").append(t.statement()).append(")");
