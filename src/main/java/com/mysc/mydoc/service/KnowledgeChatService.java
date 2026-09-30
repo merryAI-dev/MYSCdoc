@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -33,10 +34,11 @@ public class KnowledgeChatService {
             """;
 
     private final KnowledgeGraphService knowledge;
-    private final KnowledgeAnswerClient chat;
+    // Gemini 키도 로컬 챗도 없으면 빈이 없다 — 다른 AI 클라이언트처럼 선택 의존으로 받아 앱 기동은 막지 않는다.
+    private final ObjectProvider<KnowledgeAnswerClient> chat;
     private final QueryRewriteClient rewriter;
 
-    public KnowledgeChatService(KnowledgeGraphService knowledge, KnowledgeAnswerClient chat,
+    public KnowledgeChatService(KnowledgeGraphService knowledge, ObjectProvider<KnowledgeAnswerClient> chat,
                                 QueryRewriteClient rewriter) {
         this.knowledge = knowledge;
         this.chat = chat;
@@ -71,7 +73,12 @@ public class KnowledgeChatService {
             return new ChatAnswer("지식그래프에 아직 관련된 내용이 없어요. Slack 논의가 더 쌓이면 답할 수 있어요.",
                     List.of(), rewritten, mode);
         }
-        String answer = cleanAnswer(chat.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
+        KnowledgeAnswerClient client = chat.getIfAvailable();
+        if (client == null) {
+            return new ChatAnswer("답변 모델이 설정되지 않았어요. Gemini API 키나 로컬 챗 설정을 확인해 주세요.",
+                    List.of(), rewritten, mode);
+        }
+        String answer = cleanAnswer(client.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
         List<ChatSource> sources = hits.stream()
                 .map(t -> new ChatSource(t.subject(), t.predicate(), t.object(), t.kind(), t.documentId(),
                         t.hop()))
