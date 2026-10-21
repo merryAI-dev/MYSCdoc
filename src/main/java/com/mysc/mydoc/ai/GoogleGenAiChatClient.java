@@ -11,9 +11,14 @@ import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.util.StringUtils;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Component
 @Primary
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="mydoc.llm.provider", havingValue="gemini")
 @ConditionalOnExpression("'${mydoc.gemini.api-key:}' != ''")
 public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryClient, KnowledgeAnswerClient {
     // The detected HTTP client (OkHttp via the Slack SDK) defaults to a 10s read timeout,
@@ -53,7 +58,7 @@ public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryCli
                 .body(request)
                 .retrieve()
                 .body(GenerateContentResponse.class));
-        return response.candidates().get(0).content().parts().get(0).text();
+        return extractText(response);
     }
 
     @Override
@@ -78,7 +83,25 @@ public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryCli
                 .body(request)
                 .retrieve()
                 .body(GenerateContentResponse.class));
-        return response.candidates().get(0).content().parts().get(0).text();
+        return extractText(response);
+    }
+
+    static String extractText(GenerateContentResponse response) {
+        if (response == null || response.candidates() == null || response.candidates().isEmpty()) {
+            throw new RestClientException("Gemini returned no answer candidate");
+        }
+        Candidate candidate = response.candidates().get(0);
+        if (candidate == null || candidate.content() == null || candidate.content().parts() == null) {
+            throw new RestClientException("Gemini returned no answer content");
+        }
+        String text = candidate.content().parts().stream()
+                .filter(Objects::nonNull)
+                .filter(part -> !Boolean.TRUE.equals(part.thought()))
+                .map(Part::text).filter(Objects::nonNull).collect(Collectors.joining()).strip();
+        if (!StringUtils.hasText(text)) {
+            throw new RestClientException("Gemini returned an empty answer");
+        }
+        return text;
     }
 
     private record GenerateContentRequest(Content systemInstruction, List<ContentEntry> contents, GenerationConfig generationConfig) {}
@@ -89,8 +112,11 @@ public class GoogleGenAiChatClient implements CorrectionClient, ThreadSummaryCli
                                               JsonNode responseSchema) {}
     private record ThinkingConfig(int thinkingBudget) {}
     private record ContentEntry(String role, List<Part> parts) {}
-    private record Content(List<Part> parts) {}
-    private record Part(String text) {}
-    private record GenerateContentResponse(List<Candidate> candidates) {}
-    private record Candidate(Content content) {}
+    record Content(List<Part> parts) {}
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    record Part(String text, Boolean thought) {
+        Part(String text) { this(text, null); }
+    }
+    record GenerateContentResponse(List<Candidate> candidates) {}
+    record Candidate(Content content) {}
 }

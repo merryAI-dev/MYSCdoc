@@ -45,15 +45,15 @@ mydoc:
     # 서비스 계정 이메일에 뷰어로 직접 공유하는 방식이라 별도 관리자 설정이 필요 없다.
     google-application-credentials: ${GOOGLE_APPLICATION_CREDENTIALS:}
   document-base-url: ${MYDOC_BASE_URL:http://localhost:8080}
-  local-chat:
-    enabled: ${MYDOC_LOCAL_CHAT_ENABLED:false}
-    base-url: ${MYDOC_LOCAL_CHAT_BASE_URL:http://127.0.0.1:8091}
-    model: ${MYDOC_LOCAL_CHAT_MODEL:/Users/boram/mydoc/research/mlx/h10c-s43-merged}
+  llm:
+    provider: ${LLM_PROVIDER:anthropic}
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY:}
+    chat-model: ${ANTHROPIC_CHAT_MODEL:claude-haiku-5-5}
+    max-tokens: ${ANTHROPIC_MAX_TOKENS:8192}
   gemini:
     api-key: ${GEMINI_API_KEY:}
-    chat-model: gemini-2.5-flash
-    embedding-model: gemini-embedding-2
-    embedding-dimensions: 1536 # matches the fixed `vector(1536)` column in V2__search.sql
+    chat-model: ${GEMINI_CHAT_MODEL:gemini-2.5-flash}
 
 management:
   endpoints:

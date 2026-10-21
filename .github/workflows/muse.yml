@@ -1,0 +1,25 @@
+name: MYSC Muse
+on:
+  push:
+    paths: ['integrations/nanomuse/**', 'scripts/*muse*', '.github/workflows/muse.yml']
+  pull_request:
+    paths: ['integrations/nanomuse/**', 'scripts/*muse*', '.github/workflows/muse.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: integrations/nanomuse/web/package-lock.json
+      - run: python -m pip install -r integrations/nanomuse/requirements.txt
+      - run: python integrations/nanomuse/test_local.py
+      - run: npm ci --ignore-scripts && npm run check && npm run build
+        working-directory: integrations/nanomuse/web

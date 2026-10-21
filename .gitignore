@@ -35,3 +35,18 @@ research/time_split.json
 # 프롬프트 원본은 Java 소스에 있다
 research/prompts*.json
 .gstack/
+
+# Restricted nanoMuse local runtime
+integrations/nanomuse/.venv/
+integrations/nanomuse/**/__pycache__/
+
+.nanomuse-local/
+
+integrations/nanomuse/web/node_modules/
+
+# Local overrides and credentials
+.env.*
+!.env.example
+!.env.muse.example
+**/__pycache__/
+.DS_Store

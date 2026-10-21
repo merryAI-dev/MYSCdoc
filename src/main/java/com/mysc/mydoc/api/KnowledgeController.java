@@ -55,7 +55,7 @@ public class KnowledgeController {
         return knowledge.graph(q, limit, weighted);
     }
 
-    /** 지식그래프를 위키 삼아 답하는 로컬 V4b RAG 챗봇. */
+    /** 지식그래프를 위키 삼아 답하는 API 기반 RAG 챗봇. */
     @PostMapping("/api/knowledge/chat")
     ChatAnswer chat(@RequestBody ChatRequest request) {
         return chat.answer(request.question(), request.rewrite(), request.retrievalMode());

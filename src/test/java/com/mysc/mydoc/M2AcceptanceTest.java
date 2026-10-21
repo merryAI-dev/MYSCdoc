@@ -299,7 +299,7 @@ class M2AcceptanceTest {
     }
 
     @Test
-    void rechunk_withoutEmbeddingPort_removesExistingChunks() throws Exception {
+    void rechunk_withoutEmbeddingPort_preservesSearchableText() throws Exception {
         UUID documentId = createDocument("임베딩 보존 문서");
         putBlocks(documentId, List.of(block("HEADING1", "보존"), block("PARAGRAPH", "preserved text")));
         waitForChunkCount(documentId, 1);
@@ -307,7 +307,8 @@ class M2AcceptanceTest {
         ChunkingService withoutEmbedding = new ChunkingService(documentService, blockRepository, chunkRepository, noEmbeddings(), transactionManager);
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> withoutEmbedding.rechunk(documentId));
 
-        waitForChunkCount(documentId, 0);
+        waitForChunkCount(documentId, 1);
+        assertThat(chunkRepository.findByDocumentIdOrderByCreatedAtAscIdAsc(documentId).get(0).getText()).contains("preserved text");
     }
 
     private UUID createDocument(String title) {

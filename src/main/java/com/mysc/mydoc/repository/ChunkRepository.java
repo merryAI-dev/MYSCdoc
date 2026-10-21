@@ -32,7 +32,7 @@ public interface ChunkRepository extends JpaRepository<Chunk, UUID> {
             WHERE d.status IN ('ACTIVE','STALE')
               AND (CAST(:spaceId AS uuid) IS NULL OR d.space_id = CAST(:spaceId AS uuid))
               AND c.ts @@ plainto_tsquery('simple', :query)
-            ORDER BY ts_rank(c.ts, plainto_tsquery('simple', :query)) DESC
+            ORDER BY ts_rank(c.ts, plainto_tsquery('simple', :query)) DESC, c.id
             """ + TOP_HITS_LIMIT_CLAUSE, nativeQuery = true)
     List<ChunkSearchRow> keywordHits(@Param("query") String query, @Param("spaceId") UUID spaceId);
 }

@@ -36,7 +36,7 @@ public class ExtractionTraceRecorder {
 
     public ExtractionTraceRecorder(JdbcTemplate jdbc,
                                    @Value("${mydoc.extraction-trace.enabled:true}") boolean enabled,
-                                   @Value("${mydoc.gemini.chat-model:unknown}") String model) {
+                                   @Value("#{'${mydoc.llm.provider:anthropic}' == 'gemini' ? '${mydoc.gemini.chat-model:unknown}' : '${mydoc.anthropic.chat-model:claude-haiku-5-5}'}") String model) {
         this.jdbc = jdbc;
         this.enabled = enabled;
         this.model = model;

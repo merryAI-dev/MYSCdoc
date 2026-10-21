@@ -44,25 +44,19 @@ public class ChunkingService {
     }
 
     public boolean isEnabled() {
-        return embeddings.getIfAvailable() != null;
+        return true; // Text indexing does not require an embedding API.
     }
 
     public void rechunk(UUID docId) {
         EmbeddingPort embeddingPort = embeddings.getIfAvailable();
-        if (embeddingPort == null) {
-            transactions.executeWithoutResult(status -> {
-                documents.getLocked(docId);
-                chunks.deleteByDocumentId(docId);
-            });
-            return;
-        }
-
         RechunkPlan plan = transactions.execute(status -> plan(docId));
         if (plan == null) {
             return;
         }
 
-        List<float[]> vectors = embeddingPort.embedAll(plan.pieces().stream().map(Section::text).toList());
+        List<float[]> vectors = embeddingPort == null
+                ? java.util.Collections.nCopies(plan.pieces().size(), null)
+                : embeddingPort.embedAll(plan.pieces().stream().map(Section::text).toList());
         transactions.executeWithoutResult(status -> saveIfUnchanged(plan, vectors));
     }
 
@@ -86,7 +80,7 @@ public class ChunkingService {
         }
 
         // ponytail: chunk text is the content hash; add a stored hash only if this scan becomes hot.
-        if (sameTexts(pieces, existing) && existing.stream().allMatch(chunk -> chunk.getEmbedding() != null)) {
+        if (sameTexts(pieces, existing) && (embeddings.getIfAvailable() == null || existing.stream().allMatch(chunk -> chunk.getEmbedding() != null))) {
             if (!sameHeadingPaths(pieces, existing)) {
                 replaceWithReusedEmbeddings(docId, pieces, existing);
             }

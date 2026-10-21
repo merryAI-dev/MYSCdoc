@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.mockito.ArgumentCaptor;
 
 class KnowledgeChatServiceTest {
@@ -31,7 +32,7 @@ class KnowledgeChatServiceTest {
         when(client.answer(anyString(), anyString())).thenReturn(
                 "<answer>\n운영사 데모데이와 통합 데모데이로 나뉘어요. (근거: C1)\n<answer>");
 
-        KnowledgeChatService service = new KnowledgeChatService(knowledge, client, rewriter);
+        KnowledgeChatService service = new KnowledgeChatService(knowledge, new StaticListableBeanFactory(java.util.Map.of("client", client)).getBeanProvider(KnowledgeAnswerClient.class), rewriter);
         KnowledgeChatService.ChatAnswer result = service.answer("해양수산 데모데이");
 
         ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
@@ -54,11 +55,30 @@ class KnowledgeChatServiceTest {
         when(knowledge.searchContext("해양수산 데모데이", 6, 12, RetrievalMode.GRAPH))
                 .thenReturn(List.of());
 
-        KnowledgeChatService service = new KnowledgeChatService(knowledge, client, rewriter);
+        KnowledgeChatService service = new KnowledgeChatService(knowledge, new StaticListableBeanFactory(java.util.Map.of("client", client)).getBeanProvider(KnowledgeAnswerClient.class), rewriter);
         KnowledgeChatService.ChatAnswer result = service.answer(
                 "해양수산 데모데이", false, RetrievalMode.GRAPH);
 
         verify(knowledge).searchContext("해양수산 데모데이", 6, 12, RetrievalMode.GRAPH);
         assertThat(result.retrievalMode()).isEqualTo(RetrievalMode.GRAPH);
+    }
+    @Test
+    void emptyRewriteResultsFallBackToOriginalQuestion() {
+        KnowledgeGraphService knowledge = mock();
+        KnowledgeAnswerClient client = mock();
+        QueryRewriteClient rewriter = mock();
+        when(rewriter.rewrite("원 질문")).thenReturn(java.util.Optional.of("재작성 검색어"));
+        when(knowledge.searchContext("재작성 검색어", 6, 12, RetrievalMode.BM25)).thenReturn(List.of());
+        var fact = new ScoredTriple(UUID.randomUUID(), UUID.randomUUID(), "convention", "근거",
+                "주어", "관계", "목적어", Instant.now(), null, 1.0);
+        when(knowledge.searchContext("원 질문", 6, 12, RetrievalMode.BM25)).thenReturn(List.of(fact));
+        when(client.answer(anyString(), anyString())).thenReturn("근거에 따른 답변");
+        var service = new KnowledgeChatService(knowledge,
+                new StaticListableBeanFactory(java.util.Map.of("client", client))
+                        .getBeanProvider(KnowledgeAnswerClient.class), rewriter);
+        var result = service.answer("원 질문", true);
+        assertThat(result.answer()).isEqualTo("근거에 따른 답변");
+        assertThat(result.rewrittenQuery()).isNull();
+        assertThat(result.sources()).hasSize(1);
     }
 }

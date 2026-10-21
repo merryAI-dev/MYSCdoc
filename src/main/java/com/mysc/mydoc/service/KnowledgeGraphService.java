@@ -18,6 +18,9 @@ import org.springframework.util.StringUtils;
 @Service
 public class KnowledgeGraphService {
     private final KnowledgeTripleRepository triples;
+    private KnowledgeContextService contexts;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    public void setContexts(KnowledgeContextService contexts) { this.contexts=contexts; }
 
     public KnowledgeGraphService(KnowledgeTripleRepository triples) {
         this.triples = triples;
@@ -30,9 +33,9 @@ public class KnowledgeGraphService {
     public record GraphNode(String id, int degree) {}
     public record GraphEdge(String source, String target, String predicate, String kind,
                             UUID documentId, String statement, java.time.Instant eventAt,
-                            Double weight) {}
+                            Double weight, com.fasterxml.jackson.databind.JsonNode classification) {}
     public record Graph(List<GraphNode> nodes, List<GraphEdge> edges) {}
-    public enum RetrievalMode { BM25, GRAPH }
+    public enum RetrievalMode { BM25, GRAPH, CONTEXT, CONTEXT_EXPANDED }
 
     /**
      * 의미 가중치는 덧셈식으로만 쓴다: score/max + LAMBDA*weight.
@@ -189,12 +192,13 @@ public class KnowledgeGraphService {
         List<ScoredTriple> hits = search(q, limit, weighted);
         Map<String, Integer> degree = new LinkedHashMap<>();
         List<GraphEdge> edges = new ArrayList<>();
+        var annotations = contexts == null ? java.util.Map.<UUID,com.fasterxml.jackson.databind.JsonNode>of() : contexts.all();
         for (ScoredTriple hit : hits) {
             degree.merge(hit.subject(), 1, Integer::sum);
             degree.merge(hit.object(), 1, Integer::sum);
             edges.add(new GraphEdge(hit.subject(), hit.object(), hit.predicate(),
                     hit.kind(), hit.documentId(), hit.statement(), hit.eventAt(),
-                    hit.weight()));
+                    hit.weight(), annotations.get(hit.id())));
         }
         List<GraphNode> nodes = degree.entrySet().stream()
                 .map(entry -> new GraphNode(entry.getKey(), entry.getValue()))

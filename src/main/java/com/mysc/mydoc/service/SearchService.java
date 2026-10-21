@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -25,28 +24,35 @@ public class SearchService {
     private final ChunkRepository chunks;
     private final DocumentRepository documents;
     private final ObjectProvider<EmbeddingPort> embeddings;
+    private final ClaudeSearchReranker reranker;
 
-    public SearchService(ChunkRepository chunks, DocumentRepository documents, ObjectProvider<EmbeddingPort> embeddings) {
+    public SearchService(ChunkRepository chunks, DocumentRepository documents, ObjectProvider<EmbeddingPort> embeddings, ClaudeSearchReranker reranker) {
         this.chunks = chunks;
         this.documents = documents;
         this.embeddings = embeddings;
+        this.reranker = reranker;
     }
 
-    @Transactional(readOnly = true)
     public List<SearchHit> hybridSearch(String query, UUID spaceIdOrNull, int limit) {
         if (!StringUtils.hasText(query)) {
             throw new ValidationException("q is required");
         }
         EmbeddingPort embeddingPort = embeddings.getIfAvailable();
-        if (embeddingPort == null) {
-            throw new ValidationException("embedding is not configured");
-        }
         int cappedLimit = Math.max(1, Math.min(limit, MAX_SEARCH_LIMIT));
         Map<UUID, RankedChunk> ranked = new LinkedHashMap<>();
-        merge(ranked, chunks.vectorHits(vector(embeddingPort.embed(query)), spaceIdOrNull));
+        if (embeddingPort != null) merge(ranked, chunks.vectorHits(vector(embeddingPort.embed(query)), spaceIdOrNull));
         merge(ranked, chunks.keywordHits(query, spaceIdOrNull));
 
-        return ranked.values().stream()
+        List<ChunkSearchRow> candidates = ranked.values().stream()
+                .sorted(Comparator.comparingDouble(RankedChunk::score).reversed())
+                .map(RankedChunk::row).limit(MAX_HITS_PER_STRATEGY).toList();
+        List<ChunkSearchRow> ordered = reranker.rank(query, candidates);
+        Map<UUID, RankedChunk> reranked = new LinkedHashMap<>();
+        for (int i = 0; i < ordered.size(); i++) {
+            var row = ordered.get(i);
+            reranked.put(row.getId(), new RankedChunk(row, 1.0 / (RRF_K + i + 1)));
+        }
+        return reranked.values().stream()
                 .sorted(Comparator.comparingDouble(RankedChunk::score).reversed())
                 .collect(LinkedHashMap<UUID, RankedChunk>::new, (map, item) -> map.putIfAbsent(item.row().getDocumentId(), item), Map::putAll)
                 .values().stream()

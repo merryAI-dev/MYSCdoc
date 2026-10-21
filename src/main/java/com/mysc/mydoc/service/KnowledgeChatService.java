@@ -5,13 +5,14 @@ import com.mysc.mydoc.service.KnowledgeGraphService.RetrievalMode;
 import com.mysc.mydoc.service.KnowledgeGraphService.ScoredTriple;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
  * 지식그래프를 위키 삼아 답하는 RAG 챗봇. 질문을 BM25로 검색해 시드 트리플을 찾고,
  * 그 시드의 주어/목적어가 등장하는 1홉 이웃 트리플까지 함께 근거로 삼는다 — 질문과
- * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. 로컬 V4b 모델이 그 사실만
+ * 어휘가 안 겹쳐도 그래프상 연결된 지식을 놓치지 않는다. API 모델이 그 사실만
  * 근거로 답하거나, 결정적 근거가 없으면 거절한다.
  */
 @Service
@@ -28,10 +29,13 @@ public class KnowledgeChatService {
             """;
 
     private final KnowledgeGraphService knowledge;
-    private final KnowledgeAnswerClient chat;
+    private final ObjectProvider<KnowledgeAnswerClient> chat;
     private final QueryRewriteClient rewriter;
+    private ContextualGraphRetriever contextual;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    public void setContextual(ContextualGraphRetriever contextual) { this.contextual=contextual; }
 
-    public KnowledgeChatService(KnowledgeGraphService knowledge, KnowledgeAnswerClient chat,
+    public KnowledgeChatService(KnowledgeGraphService knowledge, ObjectProvider<KnowledgeAnswerClient> chat,
                                 QueryRewriteClient rewriter) {
         this.knowledge = knowledge;
         this.chat = chat;
@@ -39,9 +43,13 @@ public class KnowledgeChatService {
     }
 
     public record ChatSource(String subject, String predicate, String object, String kind, UUID documentId) {}
-    /** rewrittenQuery: RL 재작성이 실제로 쓰였을 때만 값이 있다 — A/B 육안 비교용으로 노출. */
+    /** rewrittenQuery: API 재작성이 실제로 쓰였을 때만 값이 있다 — A/B 육안 비교용으로 노출. */
     public record ChatAnswer(String answer, List<ChatSource> sources, String rewrittenQuery,
-                             RetrievalMode retrievalMode) {}
+                             RetrievalMode retrievalMode, ContextualGraphRetriever.Trace retrievalTrace) {
+        public ChatAnswer(String answer,List<ChatSource> sources,String rewrittenQuery,RetrievalMode retrievalMode) {
+            this(answer,sources,rewrittenQuery,retrievalMode,null);
+        }
+    }
 
     public ChatAnswer answer(String question) {
         return answer(question, false, RetrievalMode.BM25);
@@ -56,19 +64,33 @@ public class KnowledgeChatService {
         if (!StringUtils.hasText(question)) {
             return new ChatAnswer("질문을 입력해 주세요.", List.of(), null, mode);
         }
-        // RL 재작성은 '검색어'에만 쓴다 — 답변 생성 프롬프트에는 원 질문을 유지한다.
+        KnowledgeAnswerClient client = chat.getIfAvailable();
+        if (client == null) {
+            return new ChatAnswer("답변 API가 설정되지 않았어요. 관리자에게 선택된 제공자의 API 키 설정을 요청해 주세요.",
+                    List.of(), null, mode);
+        }
+        // API 재작성은 '검색어'에만 쓴다 — 답변 생성 프롬프트에는 원 질문을 유지한다.
         String rewritten = rewrite ? rewriter.rewrite(question).orElse(null) : null;
         String searchQuery = rewritten != null ? rewritten : question;
-        List<ScoredTriple> hits = knowledge.searchContext(searchQuery, SEED_LIMIT, RETRIEVE_LIMIT, mode);
-        if (hits.isEmpty()) {
-            return new ChatAnswer("지식그래프에 아직 관련된 내용이 없어요. Slack 논의가 더 쌓이면 답할 수 있어요.",
-                    List.of(), rewritten, mode);
+        ContextualGraphRetriever.Trace trace=null;
+        List<ScoredTriple> hits;
+        if ((mode==RetrievalMode.CONTEXT || mode==RetrievalMode.CONTEXT_EXPANDED) && contextual!=null) {
+            var retrieved=contextual.retrieve(searchQuery,mode==RetrievalMode.CONTEXT_EXPANDED);
+            hits=retrieved.hits();trace=retrieved.trace();
+        } else hits=knowledge.searchContext(searchQuery, SEED_LIMIT, RETRIEVE_LIMIT, mode);
+        if (hits.isEmpty() && rewritten != null && trace == null) {
+            hits = knowledge.searchContext(question, SEED_LIMIT, RETRIEVE_LIMIT, mode);
+            rewritten = null;
         }
-        String answer = cleanAnswer(chat.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
+        if (hits.isEmpty()) {
+            return new ChatAnswer("질문에 직접 답할 관련 근거를 찾지 못했어요. (근거 부족)",
+                    List.of(), rewritten, mode, trace);
+        }
+        String answer = cleanAnswer(client.answer(SYSTEM_PROMPT, userPrompt(question, hits)));
         List<ChatSource> sources = hits.stream()
                 .map(t -> new ChatSource(t.subject(), t.predicate(), t.object(), t.kind(), t.documentId()))
                 .toList();
-        return new ChatAnswer(answer, sources, rewritten, mode);
+        return new ChatAnswer(answer, sources, rewritten, mode, trace);
     }
 
     private String userPrompt(String question, List<ScoredTriple> hits) {
@@ -76,7 +98,7 @@ public class KnowledgeChatService {
         int i = 1;
         for (ScoredTriple t : hits) {
             // 추출 계약상 decision은 확정된 의사결정만 저장한다. 나머지는 weight를 역산하지 않고 미분류로 둔다.
-            String grade = "decision".equals(t.kind()) ? "확정" : "미분류";
+            String grade = "자동 추출·원문 검토 필요";
             facts.append("[C").append(i++).append("] [상태=").append(grade).append("] [")
                     .append(t.kind()).append("] ")
                     .append(t.subject()).append(" — ").append(t.predicate()).append(" — ").append(t.object());

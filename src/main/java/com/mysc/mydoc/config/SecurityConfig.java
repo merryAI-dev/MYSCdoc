@@ -21,13 +21,15 @@ public class SecurityConfig {
             + "frame-ancestors 'none'";
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, org.springframework.core.env.Environment environment) throws Exception {
+        String policy = CSP + (environment.matchesProfiles("marine-local")
+                ? "; frame-src 'self' http://127.0.0.1:8787" : "");
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .headers(headers -> headers
-                        .contentSecurityPolicy(csp -> csp.policyDirectives(CSP))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(policy))
                         .frameOptions(frame -> frame.deny()))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
